@@ -5,7 +5,7 @@ description = ""
 authors = [
     "Niko Covic <niko.covic@gmail.com>",
     "Gabrijel Radovcic <gradovcic@ethz.ch>",
-    "Luis Carratero Lopez"
+    "Luis Carratero Lopez <lcarretero@ethz.ch>"
 ]
 readme = "README.md"
 
