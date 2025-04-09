@@ -1,6 +1,5 @@
 from docling.document_converter import DocumentConverter
 
-
 # Class to encapsulate parsing of documents 
 # - retrieval of documents as dictionary where keys are specific sections of the paper (example: Introduction, Methodology)
 # - values are texts of given sections

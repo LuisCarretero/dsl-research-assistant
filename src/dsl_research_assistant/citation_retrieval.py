@@ -1,4 +1,4 @@
-from llama_index import GPTSimpleVectorIndex
+from llama_index import GPTVectorStoreIndex
 
 def load_index(index_path="papers_index.json"):
     index = GPTSimpleVectorIndex.load_from_disk(index_path)
