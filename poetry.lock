@@ -3382,6 +3382,26 @@ files = [
 tests = ["pytest"]
 
 [[package]]
+name = "pyalex"
+version = "0.18"
+description = "Python interface to the OpenAlex database"
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+files = [
+    {file = "pyalex-0.18-py3-none-any.whl", hash = "sha256:16cb0e0b89f7b20370e8a8a217c372d11f9bc2e539f366709aa3a47d97055d4c"},
+    {file = "pyalex-0.18.tar.gz", hash = "sha256:b71df6e0e104101783a64ecb2b41b24c75059ee4563aa5966499454168bee5e7"},
+]
+
+[package.dependencies]
+requests = "*"
+urllib3 = "*"
+
+[package.extras]
+lint = ["ruff"]
+test = ["pytest", "pytest-xdist"]
+
+[[package]]
 name = "pyarrow"
 version = "19.0.1"
 description = "Python library for Apache Arrow"
@@ -5814,4 +5834,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<4.0"
-content-hash = "5e54a55cf826c633a7bc270407e5a2ed1d359ccd10013d36c9de54d1b57cb520"
+content-hash = "cea9836a558a40a2e9921e8fd678d56688b312a0ea2aa640009e42eff81a7003"
