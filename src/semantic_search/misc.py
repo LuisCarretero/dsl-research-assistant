@@ -21,7 +21,11 @@ class LocalEmbeddingModel:
         self.batch_size = batch_size
 
         if device is None:
-            self.device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+            self.device = torch.device(
+                "cuda" if torch.cuda.is_available() 
+                else "mps" if torch.backends.mps.is_available() 
+                else "cpu"
+            )
         else:
             self.device = torch.device(device)
         self.model.to(self.device)
@@ -92,7 +96,7 @@ class FAISSDocumentStore:
         # Process all text files in the directory
         doc_paths = list(Path(data_dir).glob("*.txt"))
         print(f'Processing {len(doc_paths)} documents...')
-        for doc_id, fpath in tqdm(enumerate(doc_paths), total=len(doc_paths)):
+        for doc_id, fpath in tqdm(enumerate(doc_paths), total=len(doc_paths), desc="Chunking documents"):
             doc_text = fpath.read_text(encoding="utf-8")
             
             documents.append({
@@ -133,7 +137,6 @@ class FAISSDocumentStore:
         # Save the index and document store
         self._save_index_and_store()
         
-        print(f"Index created with {len(document_chunks)} chunks from {len(documents)} documents")
         return self.index
     
     def _save_index_and_store(self) -> None:
@@ -156,7 +159,7 @@ class FAISSDocumentStore:
         else:
             print("Index or document store not found")
             return False
-    
+
     def search(self, query: str, top_k: int = 5) -> list[dict]:
         """Search for documents similar to the query"""
         if self.index is None:
