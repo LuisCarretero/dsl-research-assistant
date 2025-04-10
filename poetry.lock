@@ -4614,6 +4614,23 @@ doc = ["intersphinx_registry", "jupyterlite-pyodide-kernel", "jupyterlite-sphinx
 test = ["Cython", "array-api-strict (>=2.0,<2.1.1)", "asv", "gmpy2", "hypothesis (>=6.30)", "meson", "mpmath", "ninja ; sys_platform != \"emscripten\"", "pooch", "pytest", "pytest-cov", "pytest-timeout", "pytest-xdist", "scikit-umfpack", "threadpoolctl"]
 
 [[package]]
+name = "semanticscholar"
+version = "0.10.0"
+description = "Unofficial Python client library for Semantic Scholar APIs."
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+files = [
+    {file = "semanticscholar-0.10.0-py3-none-any.whl", hash = "sha256:28a572eb8504d493ab5671bc3ce76f84ae70534a5828ec0cd38a26f27e66bd02"},
+    {file = "semanticscholar-0.10.0.tar.gz", hash = "sha256:82f907265aebcb1d9432b1cdd880d706230444515a4b94017358b938d007dbec"},
+]
+
+[package.dependencies]
+httpx = "*"
+nest_asyncio = "*"
+tenacity = "*"
+
+[[package]]
 name = "semchunk"
 version = "2.2.2"
 description = "A fast and lightweight Python library for splitting text into semantically meaningful chunks."
@@ -5834,4 +5851,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<4.0"
-content-hash = "cea9836a558a40a2e9921e8fd678d56688b312a0ea2aa640009e42eff81a7003"
+content-hash = "8b2839b4b9ecae589fcac4844966d6ee279047d62806b256e946f8bfa89dffcb"
