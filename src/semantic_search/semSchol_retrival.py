@@ -18,8 +18,8 @@ def get_title(fpath: str):
 
 def get_paper_metadata(sch: SemanticScholar, paper_title: str):
     try:
-        paper = sch.search_paper(query=paper_title, match_title=True, fields=['paperId', 'externalIds', 'abstract'])
-        res = {'paperId': paper['paperId'], 'abstract': paper['abstract']}
+        paper = sch.search_paper(query=paper_title, match_title=True, fields=['paperId', 'externalIds', 'abstract', 'referenceCount'])
+        res = {'paperId': paper['paperId'], 'abstract': paper['abstract'], 'referenceCount': paper['referenceCount']}
         res.update({f'externalIds.{k}': v for k, v in paper['externalIds'].items()})
         return res
     except ObjectNotFoundException:
