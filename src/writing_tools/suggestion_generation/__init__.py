@@ -1,0 +1,1 @@
+from .simple_suggestion_generator import SimpleSuggestionGenerator
