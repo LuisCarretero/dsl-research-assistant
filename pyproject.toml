@@ -19,6 +19,7 @@ pyarrow = "^19.0.1"
 numpy = ">=1.24.4,<2.0.0"
 pyalex = "^0.18"
 semanticscholar = "^0.10.0"
+evaluate = "^0.4.3"
 
 [tool.poetry.group.dev.dependencies]
 ipykernel = "^6.29.5"

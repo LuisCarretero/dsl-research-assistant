@@ -17,3 +17,15 @@ poetry install
 ```
 
 Make sure to activate the poetry environment when running the code
+
+
+# Instructions to run UI
+
+Make sure docker engine is running in the background (You have docker desktop open).
+```
+cd research-assistant
+docker build -t research-assistant .
+docker run -p 3000:3000 research-assistant
+```
+
+In browser go to http://localhost:3000/ .

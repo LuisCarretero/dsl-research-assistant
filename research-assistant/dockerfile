@@ -1,0 +1,57 @@
+# Base stage for dependencies
+FROM node:18-alpine AS base
+
+# Install Python and dependencies
+RUN apk add --no-cache python3 py3-pip gcc python3-dev musl-dev
+
+# Set workdir
+WORKDIR /app
+
+# Dependencies stage
+FROM base AS deps
+
+# Copy only dependency manifests
+COPY package.json package-lock.json* ./
+
+# Install dependencies
+RUN npm ci
+# Builder stage
+FROM base AS builder
+
+# Copy dependencies
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /usr/local/lib/python3.*/site-packages /usr/local/lib/python3.*/site-packages
+
+# Copy application code
+COPY . .
+
+# Build application
+RUN npm run build
+
+# Runner stage
+FROM node:18-alpine AS runner
+
+WORKDIR /app
+
+# Install Python for runtime (if needed)
+RUN apk add --no-cache python3
+
+# Set to production
+ENV NODE_ENV production
+
+# Copy built application
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+
+# Copy Python packages (if needed at runtime)
+COPY --from=builder /usr/local/lib/python3.*/site-packages /usr/local/lib/python3.*/site-packages
+
+# Expose port
+EXPOSE 3000
+
+# Set hostname to listen on all interfaces
+ENV HOSTNAME "0.0.0.0"
+
+# Start the application
+CMD ["node", "server.js"]
