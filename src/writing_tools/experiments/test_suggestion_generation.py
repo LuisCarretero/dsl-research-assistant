@@ -35,15 +35,20 @@ paper_segment_sentences = [segment.split(".") for segment in paper_segments]
 print(len(paper_segment_sentences))
 print(paper_segment_sentences[0])
 
-def test_suggestion_generator(suggestion_generator:_BaseSuggestionGenerator, metrics=["bleu", "rouge"]):
+def test_suggestion_generator(suggestion_generator:_BaseSuggestionGenerator, data:list[tuple[str, int]], metrics=["bleu", "rouge"]):
     bleu_total = 0
     predictions_total = 0
-    for segment_sentences in tqdm(paper_segment_sentences[:1], desc="Computing scores..."):
-        for i in tqdm(range(1, len(segment_sentences)-1)):
-            given_text = ''.join(segment_sentences[:i])
-            suggestion = suggestion_generator.predict(given_text, -1)
-            predictions_total += 1
-            bleu_total += sentence_bleu([given_text.split()], suggestion.split())
+    for text, idx in tqdm(data, desc="Computing scores"):
+        suggestion = suggestion_generator.predict(text, idx)
+
+        # Get the two sentences after the index to predict
+        truth = text[idx:]
+        truth = truth.split(".")
+        truth = '.'.join(truth[:2])+"."
+
+        predictions_total += 1
+        bleu_total += sentence_bleu([truth.split()], suggestion.split())
+
     print(bleu_total/predictions_total)
 
 test_suggestion_generator(SimpleSuggestionGenerator(OllamaInferenceModel()))
