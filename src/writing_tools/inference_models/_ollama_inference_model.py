@@ -15,6 +15,4 @@ class OllamaInferenceModel(_BaseInferenceModel):
             }
         ])
         out = response.message.content
-        if "</think>" in out:
-            out = re.search("</think>(.*)", out.replace("\n", "")).group(1)
         return out

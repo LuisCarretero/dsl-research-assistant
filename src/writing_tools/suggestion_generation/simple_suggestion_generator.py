@@ -21,6 +21,7 @@ class SimpleSuggestionGenerator(_BaseSuggestionGenerator):
         {text}
         """
         # Predict based on previous text
-        prediction = self.inference_model.predict(prompt)
-        out = re.search("Suggestion:(.*)", prediction.replace("\n", "")).group(1)
+        prediction = self.inference_model.predict(prompt).replace("\n", "")
+        pos = list(re.finditer("Suggestion:", prediction))[-1].end()
+        out = prediction[pos:]
         return out
