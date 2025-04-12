@@ -1,6 +1,5 @@
 from .._base import _BaseInferenceModel
 from ollama import chat, ChatResponse
-import re
 
 
 class OllamaInferenceModel(_BaseInferenceModel):

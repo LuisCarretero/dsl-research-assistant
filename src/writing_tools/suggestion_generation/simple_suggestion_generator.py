@@ -15,7 +15,7 @@ class SimpleSuggestionGenerator(_BaseSuggestionGenerator):
         Your main focus should be continuing on what is written LAST.
         The output should match the style of the given text.
         The output should ONLY contain the generated sentences.
-        Before your output, you should always write the keyword "Suggestion:".
+        Before your output, write the keyword "Suggestion:".
         Here is what was already written: 
         
         {text}
