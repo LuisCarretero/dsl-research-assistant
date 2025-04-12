@@ -1,2 +1,2 @@
-from .inference_models import OllamaInferenceModel
+from .inference_models import OllamaInferenceModel, HFInferenceModel
 from .suggestion_generation import SimpleSuggestionGenerator

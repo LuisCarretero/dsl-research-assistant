@@ -1,1 +1,2 @@
 from ._ollama_inference_model import OllamaInferenceModel
+from ._hf_inference_model import HFInferenceModel
