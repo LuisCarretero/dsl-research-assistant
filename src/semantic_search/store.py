@@ -32,9 +32,9 @@ class LocalEmbeddingModel:
             self.device = torch.device(device)
         self.model.to(self.device)
 
-    def chunk_texts(self, texts: list[str]) -> tuple[list[str], list[dict]]:
+    def chunk_and_encode(self, texts: list[str]) -> tuple[list[str], list[dict]]:
         """
-        Chunk texts at token level using the model's tokenizer.
+        Chunk texts at token level using the model's tokenizer and encode the chunks.
         TODO: Add overlap?
         """
         all_chunks_text = []
@@ -63,6 +63,8 @@ class LocalEmbeddingModel:
                     truncation=True,
                     return_tensors="pt"
                 )
+            else:
+                encoded_chunks = None
             
             # Also add to flat lists for backward compatibility
             all_chunks_text.append(text_chunks)
@@ -70,11 +72,12 @@ class LocalEmbeddingModel:
         
         return all_chunks_text, all_chunks_encoded
     
-    def get_embeddings(self, encoded_inputs: Dict[str, torch.Tensor]) -> np.ndarray:
+    def get_embeddings(self, encoded_inputs: Dict[str, torch.Tensor], verbose: bool = True) -> np.ndarray:
         """Generate embeddings from pre-tokenized inputs."""
+        assert isinstance(encoded_inputs, dict)
+
         embeddings = []
-        
-        for i in tqdm(range(0, len(encoded_inputs['input_ids']), self.batch_size), desc="Generating embeddings"):
+        for i in tqdm(range(0, len(encoded_inputs['input_ids']), self.batch_size), desc="Generating embeddings", disable=not verbose):
             batch_encoded = {k: v[i:i+self.batch_size] for k, v in encoded_inputs.items()}
 
             batch_dict = {k: v.to(self.device) for k, v in batch_encoded.items()}
@@ -130,7 +133,7 @@ class FAISSDocumentStore:
 
         doc_paths = list(Path(data_dir).glob("*.txt"))
         print(f'Processing {len(doc_paths)} documents...')
-        for doc_id, fpath in tqdm(enumerate(doc_paths), total=len(doc_paths), desc="Chunking documents"):
+        for doc_id, fpath in tqdm(enumerate(doc_paths), total=len(doc_paths), desc="Loading documents"):
             doc_text = fpath.read_text(encoding="utf-8")
             
             documents.append({
@@ -151,7 +154,7 @@ class FAISSDocumentStore:
 
         self.document_store = documents
 
-        all_chunks_text, all_chunks_encoded = self.embedding_model.chunk_texts(documents['text'].tolist())
+        all_chunks_text, all_chunks_encoded = self.embedding_model.chunk_and_encode(documents['text'].tolist())
         chunks_flattened = [item for sublist in all_chunks_text for item in sublist]
         
         # Flatten encoded
@@ -215,7 +218,8 @@ class FAISSDocumentStore:
                 raise ValueError("Index not created or loaded")
         
         # Get embedding for the query
-        query_embedding = self.embedding_model.get_embeddings(self.embedding_model.tokenizer(query, return_tensors="pt"))
+        _, chunks_encoded = self.embedding_model.chunk_and_encode([query])
+        query_embedding = self.embedding_model.get_embeddings(chunks_encoded[0], verbose=False)  # TODO:  Embed all chunks
         
         # Search in the index
         distances, chunk_ids = self.index.search(query_embedding, top_k)
