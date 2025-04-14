@@ -7,7 +7,7 @@ from transformers import AutoTokenizer, AutoModel
 import torch
 from transformers.tokenization_utils_base import BatchEncoding
 from tqdm import tqdm
-from typing import Dict
+
 
 class LocalEmbeddingModel:
     def __init__(

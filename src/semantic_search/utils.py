@@ -61,7 +61,12 @@ def uninvert_abstract(inv_index):
     l_inv = [(w, p) for w, pos in inv_index.items() for p in pos]
     return ' '.join(map(lambda x: x[0], sorted(l_inv, key=lambda x: x[1])))
 
-def get_abstracts(ref_works: List[str], progress_bar: bool = False) -> np.ndarray:
+def get_ref_metadata(ref_works: List[str], progress_bar: bool = False) -> np.ndarray:
+    """
+    Get metadata of interest for each reference work using OpenAlex API.
+    """
+    fields_of_interest = ['id', 'abstract_inverted_index', 'type', 'topics']
+
     if len(ref_works) == 0: return np.array([])
     res = []
     batch_size = 100  # Max PyAlex limit
@@ -69,8 +74,17 @@ def get_abstracts(ref_works: List[str], progress_bar: bool = False) -> np.ndarra
     for i in tqdm(range(batch_cnt), disable=not progress_bar):
         batch = ref_works[i*batch_size:(i+1)*batch_size]
         batch = list(map(lambda x: x.split('/')[-1], batch))  # OpenAlex IDs only to reduce request line size (may get bad request if too long)
-        raw = pyalex.Works().filter_or(openalex_id=batch).select(['id', 'abstract_inverted_index', 'type']).get(per_page=len(batch))
+        raw = pyalex.Works().filter_or(openalex_id=batch).select(fields_of_interest).get(per_page=len(batch))
         for item in raw:
             abstract = uninvert_abstract(item['abstract_inverted_index']) if item['abstract_inverted_index'] is not None else ''
-            res.append((item['id'], abstract, item['type']))
+            res.append((
+                item['id'], 
+                abstract, 
+                item['type'], 
+                item['topics'][0]['display_name'] if item['topics'] else None,
+                item['topics'][0]['domain']['display_name'] if item['topics'] else None,
+                item['topics'][0]['field']['display_name'] if item['topics'] else None,
+                item['topics'][0]['subfield']['display_name'] if item['topics'] else None
+            ))
+
     return np.array(res)
