@@ -4,51 +4,102 @@ from tqdm import tqdm
 from writing_tools._base import _BaseSuggestionGenerator
 from writing_tools import SimpleSuggestionGenerator, OllamaInferenceModel
 from nltk.translate.bleu_score import sentence_bleu
+import re
+import ast
+import json
 
 
 load_dotenv()
 
 DATA_DIR = os.environ.get("DATA_DIR")
+CITATION_DIR = os.environ.get("CITATION_DIR")
 
-# Fetch all the paper segments
-paper_segments = []
 
-dir = os.path.join(DATA_DIR, "Conversions\\opencvf-data\\md")
-for f_dir in tqdm(os.listdir(dir), desc="Loading paper segments..."):
-    with open(os.path.join(dir, f_dir), "r", encoding="utf8") as f:
-        paper = f.read()
-        # Find all the segments one by one
-        segments = paper.split("##")
-        # Only keep the ones that have at least 50 words
-        segments_filtered = []
-        for segment in segments:
-            # Don't include abstract
-            if "Abstract" not in segment:
-                if len(segment.split(" ")) >= 50:
-                    segments_filtered.append(segment)
-        paper_segments += segments_filtered
+def compute_paper_bleu(suggestion_generator:_BaseSuggestionGenerator, paper_filename:str):
+    path = os.path.join(DATA_DIR, "Conversions\\opencvf-data\\md\\"+paper_filename+".md")
+    citation_path = os.path.join(CITATION_DIR, paper_filename+".json")
 
-print(paper_segments[1])
-print(len(paper_segments))
+    with open(citation_path, "r") as f:
+        citation_dict = json.load(f)
 
-paper_segment_sentences = [segment.split(".") for segment in paper_segments]
-print(len(paper_segment_sentences))
-print(paper_segment_sentences[0])
+    with open(path, "r") as f:
+        text = f.read()
 
-def test_suggestion_generator(suggestion_generator:_BaseSuggestionGenerator, data:list[tuple[str, int]], metrics=["bleu", "rouge"]):
-    bleu_total = 0
-    predictions_total = 0
-    for text, idx in tqdm(data, desc="Computing scores"):
-        suggestion = suggestion_generator.predict(text, idx)
+    # Get all sections
+    sections = text.split("##")
+    # Remove the last section with the literature
+    text = "##".join(sections[:-1])
 
-        # Get the two sentences after the index to predict
-        truth = text[idx:]
-        truth = truth.split(".")
-        truth = '.'.join(truth[:2])+"."
+    total_bleu = 0
+    n_runs = 0
+    # Loop through all in-text citations
+    for elem in tqdm(list(re.finditer("\[[^]]+\]", text))):
+        # Fetch the reference abstracts
+        try:
+            l = ast.literal_eval(text[elem.start():elem.end()]) # Convert references to list
+            truth = ".".join(text[elem.end():].split(".")[:2])
+            abstracts = []
+            skip = False
+            for i in l.keys():
+                if str(i) in citation_dict["references"].keys():
+                    abstracts.append(citation_dict["references"][str(i)]["abstract"])
+                else: 
+                    skip = True
+            if not skip:
+                prediction = suggestion_generator.predict(text, elem.start(), abstracts)
+                bleu = sentence_bleu([truth.split()], prediction.split())
+                total_bleu += bleu
+                n_runs += 1
+        except Exception as e:
+            print(e)
+            continue
 
-        predictions_total += 1
-        bleu_total += sentence_bleu([truth.split()], suggestion.split())
+    return total_bleu/n_runs
 
-    print(bleu_total/predictions_total)
 
-test_suggestion_generator(SimpleSuggestionGenerator(OllamaInferenceModel()))
+#bleu = compute_paper_bleu(SimpleSuggestionGenerator(OllamaInferenceModel()), "Abouee_Weakly_Supervised_End2End_Deep_Visual_Odometry_CVPRW_2024_paper")
+#print(f"Bleu: {bleu}")
+
+paper_filename = "Abouee_Weakly_Supervised_End2End_Deep_Visual_Odometry_CVPRW_2024_paper"
+suggestion_generator = SimpleSuggestionGenerator(OllamaInferenceModel())
+
+path = os.path.join(DATA_DIR, "Conversions\\opencvf-data\\md\\"+paper_filename+".md")
+citation_path = os.path.join(CITATION_DIR, paper_filename+".json")
+
+with open(citation_path, "r") as f:
+    citation_dict = json.load(f)
+
+with open(path, "r") as f:
+    text = f.read()
+
+# Get all sections
+sections = text.split("##")
+# Remove the last section with the literature
+text = "##".join(sections[:-1])
+
+# Loop through all in-text citations
+count = 0
+for elem in tqdm(list(re.finditer("\[[^]]+\]", text))):
+    # Fetch the reference abstracts
+    try:
+        l = ast.literal_eval(text[elem.start():elem.end()]) # Convert references to list
+        previous_sentences = ".".join(text[:elem.start()].split(".")[:-1])
+        truth = text[:elem.start()].split(".")[-1]
+        abstracts = []
+        for i in l:
+            if str(i) in citation_dict["references"].keys():
+                abstracts.append(citation_dict["references"][str(i)]["abstract"])
+        prediction = suggestion_generator.predict(text, elem.start(), abstracts)
+        print(f"Abstracts: {abstracts}")
+        print()
+        print(f"Previous text: {'.'.join(previous_sentences.split('.')[-10:])}")
+        print()
+        print(f"Prediction: {prediction}")
+        print()
+        print(f"Truth: {truth}")
+        count += 1
+        if count == 2:
+            break
+    except Exception as e:
+        print(e)
+        continue

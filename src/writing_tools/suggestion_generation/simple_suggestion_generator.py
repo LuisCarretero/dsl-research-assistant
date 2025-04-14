@@ -8,14 +8,14 @@ class SimpleSuggestionGenerator(_BaseSuggestionGenerator):
     def predict(self, existing_text:str, position_in_text:int, citations:list[str]) -> str:
         # Get all text prior to position
         citation_context = "\n".join(citations)
-        text = existing_text[:position_in_text]
+        previous_sentences = existing_text[:position_in_text].split(".")
+        text = ".".join(previous_sentences[min(10, len(previous_sentences))*-1:]) # Fetch the last 10 sentences
         prompt = f"""
-        You are a tool used for giving writing suggestions to a researcher writing a paper.
-        You will be given an unfinished segment of the paper.
-        You will also be provided context from other papers, which you should include in the suggestion.
-        Continue writing the paper by generating at most two new brief sentences.
-        Your main focus should be continuing on what is written LAST in the paper so far.
-        The output should match the style of the current paper.
+        You are helping write a research paper.
+
+        Given a few sentences from the paper, write a short sentence to continue them, by including information from the context of other papers.
+        Remember: the new sentence MUST include information from the context papers.
+
         The output should ONLY contain the generated sentences.
         Before your output, write the keyword "Suggestion:".
 
