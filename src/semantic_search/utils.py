@@ -61,16 +61,16 @@ def uninvert_abstract(inv_index):
     l_inv = [(w, p) for w, pos in inv_index.items() for p in pos]
     return ' '.join(map(lambda x: x[0], sorted(l_inv, key=lambda x: x[1])))
 
-def get_abstracts(ref_works: List[str]):
-    if len(ref_works) == 0: return None
+def get_abstracts(ref_works: List[str], progress_bar: bool = False) -> np.ndarray:
+    if len(ref_works) == 0: return np.array([])
     res = []
     batch_size = 100  # Max PyAlex limit
     batch_cnt = (len(ref_works)-1) // batch_size + 1
-    for i in range(batch_cnt):
+    for i in tqdm(range(batch_cnt), disable=not progress_bar):
         batch = ref_works[i*batch_size:(i+1)*batch_size]
         batch = list(map(lambda x: x.split('/')[-1], batch))  # OpenAlex IDs only to reduce request line size (may get bad request if too long)
-        raw = pyalex.Works().filter_or(openalex_id=batch).select(['abstract_inverted_index', 'type']).get(per_page=len(batch))
-        for ref_work, item in zip(batch, raw):
+        raw = pyalex.Works().filter_or(openalex_id=batch).select(['id', 'abstract_inverted_index', 'type']).get(per_page=len(batch))
+        for item in raw:
             abstract = uninvert_abstract(item['abstract_inverted_index']) if item['abstract_inverted_index'] is not None else ''
-            res.append((ref_work, abstract, item['type']))
+            res.append((item['id'], abstract, item['type']))
     return np.array(res)

@@ -5,6 +5,7 @@ import pandas as pd
 from pathlib import Path
 from transformers import AutoTokenizer, AutoModel
 import torch
+from transformers.tokenization_utils_base import BatchEncoding
 from tqdm import tqdm
 from typing import Dict
 
@@ -32,7 +33,7 @@ class LocalEmbeddingModel:
             self.device = torch.device(device)
         self.model.to(self.device)
 
-    def chunk_and_encode(self, texts: list[str]) -> tuple[list[str], list[dict]]:
+    def chunk_and_encode(self, texts: list[str], progress_bar: bool = False) -> tuple[list[str], list[dict]]:
         """
         Chunk texts at token level using the model's tokenizer and encode the chunks.
         TODO: Add overlap?
@@ -44,7 +45,7 @@ class LocalEmbeddingModel:
 
         texts_tokenized = self.tokenizer(texts, add_special_tokens=False, return_token_type_ids=False, return_attention_mask=False)
 
-        for text_tokenized in texts_tokenized['input_ids']:
+        for text_tokenized in tqdm(texts_tokenized['input_ids'], desc="Chunking and encoding", disable=not progress_bar):
             # Create chunks of tokens
             text_chunks, text_encoded_chunks = [], []
             
@@ -72,12 +73,11 @@ class LocalEmbeddingModel:
         
         return all_chunks_text, all_chunks_encoded
     
-    def get_embeddings(self, encoded_inputs: Dict[str, torch.Tensor], verbose: bool = True) -> np.ndarray:
+    def get_embeddings(self, encoded_inputs: BatchEncoding, progress_bar: bool = False) -> np.ndarray:
         """Generate embeddings from pre-tokenized inputs."""
-        assert isinstance(encoded_inputs, dict)
 
         embeddings = []
-        for i in tqdm(range(0, len(encoded_inputs['input_ids']), self.batch_size), desc="Generating embeddings", disable=not verbose):
+        for i in tqdm(range(0, len(encoded_inputs['input_ids']), self.batch_size), desc="Generating embeddings", disable=not progress_bar):
             batch_encoded = {k: v[i:i+self.batch_size] for k, v in encoded_inputs.items()}
 
             batch_dict = {k: v.to(self.device) for k, v in batch_encoded.items()}
@@ -113,20 +113,8 @@ class FAISSDocumentStore:
         self.index_path = os.path.join(self.db_dir, 'faiss_document_index.faiss')
         self.document_store_path = os.path.join(self.db_dir, 'document_store.parquet')
         self.chunk_store_path = os.path.join(self.db_dir, 'chunk_store.parquet')
-    
-    def _chunk_text(self, text: str, chunk_size: int = 1000, overlap: int = 200):
-        """
-        Split text into overlapping chunks
-        FIXME: Use model chunk size?
-        TODO: Use tokenizer to chunk text
-        """
-        chunks = []
-        for i in range(0, len(text), chunk_size - overlap):
-            chunk = text[i:i + chunk_size]
-            if len(chunk) >= chunk_size // 2:  # Only keep chunks of reasonable size
-                chunks.append(chunk)
-        return chunks
-    
+        self.embeddings_path = os.path.join(self.db_dir, 'embeddings.npy')
+
     def create_index_from_directory(self, data_dir: str):
         """Create FAISS index from documents in the specified directory"""
         documents = []
@@ -154,7 +142,7 @@ class FAISSDocumentStore:
 
         self.document_store = documents
 
-        all_chunks_text, all_chunks_encoded = self.embedding_model.chunk_and_encode(documents['text'].tolist())
+        all_chunks_text, all_chunks_encoded = self.embedding_model.chunk_and_encode(documents['text'].tolist(), progress_bar=True)
         chunks_flattened = [item for sublist in all_chunks_text for item in sublist]
         
         # Flatten encoded
@@ -175,15 +163,16 @@ class FAISSDocumentStore:
 
         # Get embeddings for all chunks
         print(f"Generating embeddings for {len(encoded_flattened)} chunks...")
-        embeddings = self.embedding_model.get_embeddings(encoded_flattened)
+        embeddings = self.embedding_model.get_embeddings(encoded_flattened, progress_bar=True)
+        self.embeddings = embeddings
         
         # Create FAISS index
-        dimension = embeddings.shape[1]
-        self.index = faiss.IndexFlatL2(dimension)
+        emb_dim = embeddings.shape[1]
+        self.index = faiss.IndexFlatL2(emb_dim)
         self.index = faiss.IndexIDMap(self.index)
         
         # Add embeddings to the index with their IDs
-        self.index.add_with_ids(embeddings, np.array(self.chunk_store["chunk_id"]).astype('int64'))
+        self.index.add_with_ids(embeddings, np.array(self.chunk_store['chunk_id']).astype('int64'))
         
         # Save the index and document store
         self._save_index_and_store()
@@ -198,13 +187,15 @@ class FAISSDocumentStore:
         faiss.write_index(self.index, self.index_path)
         self.document_store.to_parquet(self.document_store_path)
         self.chunk_store.to_parquet(self.chunk_store_path)
-    
+        np.save(self.embeddings_path, self.embeddings)
+
     def load_index(self) -> bool:
         """Load FAISS index and document store from disk"""
         if os.path.exists(self.index_path) and os.path.exists(self.document_store_path) and os.path.exists(self.chunk_store_path):
             self.index = faiss.read_index(self.index_path)
             self.document_store = pd.read_parquet(self.document_store_path)
             self.chunk_store = pd.read_parquet(self.chunk_store_path)
+            self.embeddings = np.load(self.embeddings_path)
             print(f"Loaded index with {self.index.ntotal} vectors")
             return True
         else:
@@ -218,8 +209,8 @@ class FAISSDocumentStore:
                 raise ValueError("Index not created or loaded")
         
         # Get embedding for the query
-        _, chunks_encoded = self.embedding_model.chunk_and_encode([query])
-        query_embedding = self.embedding_model.get_embeddings(chunks_encoded[0], verbose=False)  # TODO:  Embed all chunks
+        _, chunks_encoded = self.embedding_model.chunk_and_encode([query], progress_bar=False)
+        query_embedding = self.embedding_model.get_embeddings(chunks_encoded[0], progress_bar=False)  # TODO:  Embed all chunks
         
         # Search in the index
         distances, chunk_ids = self.index.search(query_embedding, top_k)
