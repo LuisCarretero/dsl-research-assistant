@@ -7,6 +7,7 @@ from nltk.translate.bleu_score import sentence_bleu
 import re
 import ast
 import json
+import traceback
 
 
 load_dotenv()
@@ -84,7 +85,15 @@ for elem in tqdm(list(re.finditer("\[[^]]+\]", text))):
     try:
         l = ast.literal_eval(text[elem.start():elem.end()]) # Convert references to list
         previous_sentences = ".".join(text[:elem.start()].split(".")[:-1])
-        truth = text[:elem.start()].split(".")[-1]
+        sentences = text.split(".")
+        size = 0
+        truth = None
+        for sentence in sentences:
+            size += len(sentence)+1
+            if size > elem.start():
+                truth = sentence
+                break
+        #truth = text[:elem.start()].split(".")[-1]
         abstracts = []
         for i in l:
             if str(i) in citation_dict["references"].keys():
@@ -101,5 +110,5 @@ for elem in tqdm(list(re.finditer("\[[^]]+\]", text))):
         if count == 2:
             break
     except Exception as e:
-        print(e)
+        print(traceback.format_exc())
         continue

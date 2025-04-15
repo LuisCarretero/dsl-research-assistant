@@ -10,25 +10,37 @@ class SimpleSuggestionGenerator(_BaseSuggestionGenerator):
         citation_context = "\n".join(citations)
         previous_sentences = existing_text[:position_in_text].split(".")
         text = ".".join(previous_sentences[min(10, len(previous_sentences))*-1:]) # Fetch the last 10 sentences
-        prompt = f"""
-        You are helping write a research paper.
 
-        Given a few sentences from the paper, write a short sentence to continue them, by including information from the context of other papers.
-        Remember: the new sentence MUST include information from the context papers.
+        prompt_summary = f"""
+        Summarize these papers:
 
-        The output should ONLY contain the generated sentences.
-        Before your output, write the keyword "Suggestion:".
-
-        Here is the context from the other papers:
-
+        [Beginning of paper abstracts]
         {citation_context}
+        [End of paper abstracts]
 
-        Here is what was already written in the current paper, this is what you should continue writing on: 
-        
-        {text}
+        Keep your answer short. At most one sentence.
+        Before your output, write the keyword "Summary:".
         """
+
+        summary = self.inference_model.predict(prompt_summary).replace("\n", "")
+        pos = list(re.finditer("Summary:", summary))[-1].end()
+        summary = summary[pos:]
+
+        prompt_suggestion = f"""
+        Continue the following text, as if you were writing a research paper: 
+
+        {text}
+
+        Do this by writing a single short sentence which includes the following context:
+
+        {summary}
+
+        Your output MUST be short, and contain only one sentence.
+        Before your output, write the keyword "Suggestion:".
+        """
+
         # Predict based on previous text
-        prediction = self.inference_model.predict(prompt).replace("\n", "")
+        prediction = self.inference_model.predict(prompt_suggestion).replace("\n", "")
         pos = list(re.finditer("Suggestion:", prediction))[-1].end()
         out = prediction[pos:]
         return out
