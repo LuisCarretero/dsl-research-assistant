@@ -6,6 +6,8 @@ from typing import List
 from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
 import numpy as np
+from semanticscholar import SemanticScholar
+from semanticscholar.SemanticScholarException import ObjectNotFoundException
 
 
 pyalex.config.email = "luis.carretero@gmx.de"
@@ -39,16 +41,46 @@ def get_title_from_fpath(fpath: str):
     title_match = re.search(r'## ([^\n#]+)', doc_text)
     return title_match.group(1) if title_match else None
 
-def get_orig_metadata(title: str):
+def get_orig_metadata_oa(title: str):
+    """
+    Retrieves metadata associated with original paper (as opposed to secondary references) via OpenAlex API (oa).
+    """
     search_results = pyalex.Works().search(title).select(['id', 'doi', 'referenced_works']).get(page=1, per_page=1)
     return (search_results[0]['doi'], search_results[0]['id'], search_results[0]['referenced_works']) if search_results else (None, None, None)
 
-def multithread_apply(data, func, n_workers: int = 5, progress_bar: bool = True):
+def get_orig_metadata_ss(sch: SemanticScholar, title: str):
+    """
+    TODO: Combine into single API call if possible?
+    """
+    try:
+        raw = sch.search_paper(title, fields=['paperId', 'externalIds'], match_title=True)  # TODO: Check matchScore?
+    except ObjectNotFoundException:
+        return None
+    
+    ssid, doi = raw['paperId'], (raw['externalIds'].get('DOI') if raw['externalIds'] else None)
+    
+    try:
+          # 'paperId', 'title' TODO: Do title check with OA data?
+        raw = sch.get_paper_references(paper_id=doi, fields=['externalIds'], limit=1000)
+    except ObjectNotFoundException:
+        return ssid, doi, []
+
+    refs_doi = []
+    for item in raw.items:
+        external_ids = item['citedPaper'].get('externalIds')
+        if external_ids is None: continue
+        ref_doi = external_ids.get('DOI', None)
+        if ref_doi is None: continue
+        refs_doi.append(ref_doi)
+    return ssid, doi, refs_doi
+
+def multithread_apply(data, func, n_workers: int = 5, progress_bar: bool = True, desc=None):
     with ThreadPoolExecutor(max_workers=n_workers) as executor:
         results = list(tqdm(
             executor.map(func, data),
             total=len(data),
-            disable=not progress_bar
+            disable=not progress_bar,
+            desc=desc
         ))
     return results
 
@@ -62,22 +94,23 @@ def uninvert_abstract(inv_index):
     l_inv = [(w, p) for w, pos in inv_index.items() for p in pos]
     return ' '.join(map(lambda x: x[0], sorted(l_inv, key=lambda x: x[1])))
 
-def get_ref_metadata(ref_works: List[str], id_key: str = 'openalex_id', progress_bar: bool = False) -> np.ndarray:
+def get_ref_metadata(ref_ids: List[str], id_key: str = 'openalex_id', progress_bar: bool = False) -> np.ndarray:
     """
     Get metadata of interest for each reference work using OpenAlex API. Searches by OpenAlex ID.
     """
     fields_of_interest = ['id', 'doi','abstract_inverted_index', 'title', 'type', 'topics']
 
-
-    if len(ref_works) == 0: return np.array([])
+    if len(ref_ids) == 0: return np.array([])
+    if id_key == 'openalex_id':
+        # OpenAlex IDs only to reduce request line size (may get bad request if too long)
+        ref_ids = list(map(lambda x: x.split('/')[-1], ref_ids))
 
     res = []
     batch_size = 100  # Max PyAlex limit
-    batch_cnt = (len(ref_works)-1) // batch_size + 1
+    batch_cnt = (len(ref_ids)-1) // batch_size + 1
 
     for i in tqdm(range(batch_cnt), disable=not progress_bar):
-        batch = ref_works[i*batch_size:(i+1)*batch_size]
-        batch = list(map(lambda x: x.split('/')[-1], batch))  # OpenAlex IDs only to reduce request line size (may get bad request if too long)
+        batch = ref_ids[i*batch_size:(i+1)*batch_size]
 
         raw = pyalex.Works().filter_or(**{id_key: batch}).select(fields_of_interest).get(per_page=len(batch))
         if len(raw) != len(batch):

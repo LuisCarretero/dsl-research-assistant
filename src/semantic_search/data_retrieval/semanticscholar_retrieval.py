@@ -26,8 +26,8 @@ def get_paper_metadata(sch: SemanticScholar, paper_title: str):
         return {}
 
 if __name__ == '__main__':
-    raw_dir = '/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/raw-data/Conversions/opencvf-data/txt'
-    output_dir = '/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/raw-data/metadata'
+    raw_dir = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/raw-data/Conversions/opencvf-data/txt'
+    output_dir = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/raw-data/metadata'
     
     # Get paths, fnames and titles from raw data dir
     df = pd.DataFrame(
