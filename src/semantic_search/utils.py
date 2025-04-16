@@ -8,6 +8,7 @@ from tqdm import tqdm
 import numpy as np
 from semanticscholar import SemanticScholar
 from semanticscholar.SemanticScholarException import ObjectNotFoundException
+from functools import partial
 
 
 pyalex.config.email = "luis.carretero@gmx.de"
@@ -113,8 +114,8 @@ def get_ref_metadata(ref_ids: List[str], id_key: str = 'openalex_id', progress_b
         batch = ref_ids[i*batch_size:(i+1)*batch_size]
 
         raw = pyalex.Works().filter_or(**{id_key: batch}).select(fields_of_interest).get(per_page=len(batch))
-        if len(raw) != len(batch):
-            print(f"Warning: Only {len(raw)} out of {len(batch)} references found for batch {i}")
+        # if len(raw) != len(batch):  # FIXME: Check how many are actually missing
+        #     print(f"Warning: Only {len(raw)} out of {len(batch)} references found for batch {i}")
 
         for item in raw:
             abstract = uninvert_abstract(item['abstract_inverted_index']) if item['abstract_inverted_index'] is not None else ''
@@ -131,3 +132,46 @@ def get_ref_metadata(ref_ids: List[str], id_key: str = 'openalex_id', progress_b
             ))
 
     return np.array(res)
+
+def collect_orig_paper_metadata(raw_dir: str, output_fpath: str, max_papers: int = -1):
+    """
+    Collect metadata of original papers from Docling output directory.
+    """
+    # Get fpath, fname
+    df = pd.DataFrame([(str(fpath), fpath.name) for fpath in Path(raw_dir).glob("*.txt")], columns=['fpath', 'fname'])
+    df = df.iloc[:max_papers]
+    df['title'] = df['fpath'].apply(get_title_from_fpath)
+
+    # Load OpenAlex metadata
+    doi, oaid, refs_oaid = zip(*multithread_apply(df['title'].values, get_orig_metadata_oa, n_workers=5, desc='Pulling OpenAlex metadata'))
+    df['doi'], df['oaid'], df['refs_oaid'] = doi, oaid, refs_oaid
+    df['refs_doi'] = ''
+
+    # Load SemanticScholar metadata
+    sch = SemanticScholar()
+    ssid, doi_ss, refs_doi = zip(*multithread_apply(df['title'].values, partial(get_orig_metadata_ss, sch), n_workers=1, desc='Pulling SemanticScholar metadata'))
+    df['ssid'], df['oaid'], df['refs_doi'] = ssid, doi_ss, refs_doi
+
+    df.to_csv(output_fpath, index=False)
+
+def collect_ref_metadata(orig_metadata_fpath: str, output_fpath: str, max_papers: int = -1):
+    """
+    Collect metadata of references from specified by original paper metadata.
+    """
+    # Load original paper metadata
+    df = pd.read_csv(orig_metadata_fpath)
+    df = df.iloc[:max_papers]
+    df['refs_oaid'] = df['refs_oaid'].apply(parse_list_string)
+    df['doi'] = df['doi'].apply(parse_list_string)
+    # df[['total_references', 'references_in_dataset']] = df.apply(lambda x: count_references(x, df), axis=1, result_type='expand')
+
+    # Retrieve reference metadata via OpenAlex API
+    results = []
+    for col, id_key in zip(['refs_oaid', 'doi'], ['openalex_id', 'doi']):
+        all_refs = pd.Series(np.concatenate(df[col].values)).unique()
+        all_refs_batched = [all_refs[i:i+100] for i in range(0, len(all_refs), 100)]
+        results.extend(multithread_apply(all_refs_batched, lambda x: get_ref_metadata(x, id_key=id_key), n_workers=5))
+    results = np.concatenate([res for res in results if len(res) > 0])
+
+    ref_df = pd.DataFrame(results, columns=['oaid', 'doi', 'title', 'abstract', 'type', 'topic', 'domain', 'field', 'subfield'])
+    ref_df.to_csv(output_fpath, index=False)
