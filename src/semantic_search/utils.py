@@ -10,6 +10,7 @@ import numpy as np
 
 pyalex.config.email = "luis.carretero@gmx.de"
 
+
 def parse_list_string(x: str) -> List[str]:
     """
     Parse a string that contains a list of strings by calling str() on it.
@@ -38,7 +39,7 @@ def get_title_from_fpath(fpath: str):
     title_match = re.search(r'## ([^\n#]+)', doc_text)
     return title_match.group(1) if title_match else None
 
-def get_metadata(title: str):
+def get_orig_metadata(title: str):
     search_results = pyalex.Works().search(title).select(['id', 'doi', 'referenced_works']).get(page=1, per_page=1)
     return (search_results[0]['doi'], search_results[0]['id'], search_results[0]['referenced_works']) if search_results else (None, None, None)
 
@@ -61,26 +62,35 @@ def uninvert_abstract(inv_index):
     l_inv = [(w, p) for w, pos in inv_index.items() for p in pos]
     return ' '.join(map(lambda x: x[0], sorted(l_inv, key=lambda x: x[1])))
 
-def get_ref_metadata(ref_works: List[str], progress_bar: bool = False) -> np.ndarray:
+def get_ref_metadata(ref_works: List[str], id_key: str = 'openalex_id', progress_bar: bool = False) -> np.ndarray:
     """
-    Get metadata of interest for each reference work using OpenAlex API.
+    Get metadata of interest for each reference work using OpenAlex API. Searches by OpenAlex ID.
     """
-    fields_of_interest = ['id', 'abstract_inverted_index', 'type', 'topics']
+    fields_of_interest = ['id', 'doi','abstract_inverted_index', 'title', 'type', 'topics']
+
 
     if len(ref_works) == 0: return np.array([])
+
     res = []
     batch_size = 100  # Max PyAlex limit
     batch_cnt = (len(ref_works)-1) // batch_size + 1
+
     for i in tqdm(range(batch_cnt), disable=not progress_bar):
         batch = ref_works[i*batch_size:(i+1)*batch_size]
         batch = list(map(lambda x: x.split('/')[-1], batch))  # OpenAlex IDs only to reduce request line size (may get bad request if too long)
-        raw = pyalex.Works().filter_or(openalex_id=batch).select(fields_of_interest).get(per_page=len(batch))
+
+        raw = pyalex.Works().filter_or(**{id_key: batch}).select(fields_of_interest).get(per_page=len(batch))
+        if len(raw) != len(batch):
+            print(f"Warning: Only {len(raw)} out of {len(batch)} references found for batch {i}")
+
         for item in raw:
             abstract = uninvert_abstract(item['abstract_inverted_index']) if item['abstract_inverted_index'] is not None else ''
             res.append((
-                item['id'], 
+                item.get('id'),
+                item.get('doi'),
+                item.get('title'),
                 abstract, 
-                item['type'], 
+                item.get('type'), 
                 item['topics'][0]['display_name'] if item['topics'] else None,
                 item['topics'][0]['domain']['display_name'] if item['topics'] else None,
                 item['topics'][0]['field']['display_name'] if item['topics'] else None,

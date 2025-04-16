@@ -8,7 +8,6 @@ import torch
 from transformers.tokenization_utils_base import BatchEncoding
 from tqdm import tqdm
 
-
 class LocalEmbeddingModel:
     def __init__(
         self, 
