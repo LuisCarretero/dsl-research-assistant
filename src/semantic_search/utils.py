@@ -1,14 +1,15 @@
 import pandas as pd
 from pathlib import Path
 import re
+from typing import Dict, List
 import pyalex
-from typing import List
 from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
 import numpy as np
 from semanticscholar import SemanticScholar
 from semanticscholar.SemanticScholarException import ObjectNotFoundException
 from functools import partial
+from difflib import SequenceMatcher
 
 
 pyalex.config.email = "luis.carretero@gmx.de"
@@ -50,47 +51,72 @@ def get_title_from_fpath(fpath: str):
     # Fallback
     return ' '.join(fpath.split('.')[0].split('_')[1:-3])
 
+def similarity_ratio(a: str, b: str) -> float:
+    """
+    Calculate the similarity ratio between two strings.
+    Returns a float between 0 and 1, where 1 means identical strings.
+    """
+    return SequenceMatcher(None, a.lower(), b.lower()).ratio()
+
 def get_orig_metadata_oa(title: str):
     """
     Retrieves metadata associated with original paper (as opposed to secondary references) via OpenAlex API (oa).
+
+    Returns: Tuple of (doi: str, oaid: str, refs_oaid: List[str], sim_score_1st: float, sim_score_2nd: float)
+
+    FIXME: Could call batched once we have ID.
+    FIXME: Change to dict return type
     """
     try:
-        search_results = pyalex.Works().search(title).select(['id', 'doi', 'referenced_works']).get(page=1, per_page=1)
-        return (search_results[0]['doi'][0], search_results[0]['id'], search_results[0]['referenced_works']) if search_results else (None, None, None)
+        res = pyalex.Works().search_filter(title=title).select(['id', 'title']).get(page=1, per_page=100)
+        for paper_dict in res:
+            paper_dict['similarity'] = similarity_ratio(paper_dict['title'], title)
+        res = sorted(res, key=lambda x: x['similarity'], reverse=True)
+
+        sim_score_1st, sim_score_2nd = res[0]['similarity'], (res[1]['similarity'] if len(res) > 1 else 0)
+
+        search_results = pyalex.Works().filter_or(openalex_id=res[0]['id']).select(['id', 'doi', 'title', 'referenced_works']).get(page=1, per_page=1)
+        if len(search_results) == 1:
+            res = search_results[0]
+            refs = map(lambda x: x.split('/')[-1], res.get('referenced_works', []))
+            return (res.get('doi'), res.get('id'), list(refs), sim_score_1st, sim_score_2nd)
+        return (None, None, None, sim_score_1st, sim_score_2nd)
     except Exception as e:
         print(f"Error fetching metadata for title: {title}")
         print(f"Error details: {e}")
-        return None, None, None
+        return (None, None, None, None, None)
 
 def get_orig_metadata_ss(sch: SemanticScholar, title: str):
     """
     TODO: Combine into single API call if possible?
+
+    Returns: Tuple of (ssid: str, doi: str, title_sim: float, ref_cnt: int, refs_doi: List[str])
     """
     try:
-        raw = sch.search_paper(title, fields=['paperId', 'externalIds'], match_title=True)  # TODO: Check matchScore?
-    # except ObjectNotFoundException:
-    #     return None
-    
-        ssid, doi = raw['paperId'], (raw['externalIds'].get('DOI') if raw['externalIds'] else None)
-        
-        # try:
-            # 'paperId', 'title' TODO: Do title check with OA data?
-        raw = sch.get_paper_references(paper_id=doi, fields=['externalIds'], limit=1000)
-        # except ObjectNotFoundException:
-        #     return ssid, doi, []
+        # TODO: Below can throw ObjectNotFoundException. Handle this seperately?
+        raw = sch.search_paper(title, fields=['paperId', 'externalIds', 'title', 'referenceCount'], match_title=True)  # TODO: Check matchScore?
+
+        ssid, title_ss, ref_cnt = raw['paperId'], raw['title'], raw['referenceCount']
+        doi = raw['externalIds'].get('DOI') if raw['externalIds'] else None
+        title_sim = similarity_ratio(title_ss, title)
+
+        raw = sch.get_paper_references(paper_id=ssid, fields=['externalIds'], limit=1000)
 
         refs_doi = []
         for item in raw.items:
             external_ids = item['citedPaper'].get('externalIds')
             if external_ids is None: continue
-            ref_doi = external_ids.get('DOI', None)
-            if ref_doi is None: continue
+            ref_doi = external_ids.get('DOI')
+            if ref_doi is None: 
+                ref_arxiv = external_ids.get('ArXiv')
+                if ref_arxiv is None: continue
+                ref_doi = f'10.48550/arXiv.{ref_arxiv}'
             refs_doi.append(ref_doi)
-        return ssid, doi, refs_doi
+        return ssid, doi, title_sim, ref_cnt, refs_doi
     except Exception as e:
         print(f"Error fetching metadata for title: {title}")
         print(f"Error details: {e}")
-        return None, None, None
+        return None, None, None, None, None
 
 def multithread_apply(data, func, n_workers: int = 5, progress_bar: bool = True, desc=None):
     with ThreadPoolExecutor(max_workers=n_workers) as executor:
@@ -108,7 +134,7 @@ def count_references(row, df):
     refs_in_dataset = sum(1 for ref in row['referenced_works'] if ref in dataset_oaids)
     return total_refs, refs_in_dataset
 
-def uninvert_abstract(inv_index):
+def uninvert_abstract(inv_index: Dict[str, List[int]]) -> str:
     l_inv = [(w, p) for w, pos in inv_index.items() for p in pos]
     return ' '.join(map(lambda x: x[0], sorted(l_inv, key=lambda x: x[1])))
 
@@ -161,24 +187,24 @@ def collect_orig_paper_metadata(raw_dir: str, output_fpath: str, max_papers: int
     df['title'] = df['fpath'].apply(get_title_from_fpath)
 
     # Load OpenAlex metadata
-    doi, oaid, refs_oaid = zip(*multithread_apply(
+    doi, oaid, refs_oaid, sim_score_1st, sim_score_2nd = zip(*multithread_apply(
         df['title'].values, 
         get_orig_metadata_oa, 
         n_workers=4, 
         desc='Pulling OpenAlex metadata'
     ))
-    df['doi'], df['oaid'], df['refs_oaid'] = doi, oaid, refs_oaid
+    df['doi'], df['oaid'], df['refs_oaid'], df['oa_sim_score_1st'], df['oa_sim_score_2nd'] = doi, oaid, refs_oaid, sim_score_1st, sim_score_2nd
     df['refs_doi'] = ''
 
     # Load SemanticScholar metadata
     sch = SemanticScholar()
-    ssid, doi_ss, refs_doi = zip(*multithread_apply(
+    ssid, doi_ss, title_sim, ref_cnt, refs_doi = zip(*multithread_apply(
         df['title'].values, 
         partial(get_orig_metadata_ss, sch), 
         n_workers=1, 
         desc='Pulling SemanticScholar metadata'
     ))
-    df['ssid'], df['oaid'], df['refs_doi'] = ssid, doi_ss, refs_doi
+    df['ssid'], df['doi_ss'], df['ss_sim_score'], df['ss_ref_cnt'], df['refs_doi'] = ssid, doi_ss, title_sim, ref_cnt, refs_doi
 
     df.to_csv(output_fpath, index=False)
 
