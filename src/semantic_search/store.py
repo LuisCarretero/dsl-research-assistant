@@ -8,13 +8,14 @@ import torch
 from transformers.tokenization_utils_base import BatchEncoding
 from tqdm import tqdm
 import sys
+from typing import Union
 
 class LocalEmbeddingModel:
     def __init__(
         self, 
         model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
         chunk_size: int = 256,
-        chunk_overlap: int = 0,
+        chunk_overlap: int = 32,
         batch_size: int = 8,
         device: str = None
     ):
@@ -35,14 +36,22 @@ class LocalEmbeddingModel:
             self.device = torch.device(device)
         self.model.to(self.device)
 
-    def chunk_and_encode(self, texts: list[str], progress_bar: bool = False) -> tuple[list[str], list[dict]]:
+    def chunk_and_encode(self, texts: Union[list[str], str], progress_bar: bool = False) -> tuple[list[str], list[dict]]:
         """
         Chunk texts at token level using the model's tokenizer and encode the chunks.
-        TODO: Add overlap?
 
         Didnt manage to call tokenizer.prepare_for_model batched so doing weird back and forth
         conversion for now.
+
+        TODO: Allow for single text input (and return single in that case). 
+        Allow for np arrays or other iterable inputs.
         """
+        if isinstance(texts, str):
+            texts = [texts]
+            unwrap = True
+        else:
+            assert isinstance(texts, list), "texts must be a list"
+            unwrap = False
         all_chunks_text = []
         all_chunks_encoded = []
 
@@ -85,6 +94,8 @@ class LocalEmbeddingModel:
             all_chunks_text.append(text_chunks)
             all_chunks_encoded.append(encoded_chunks)
         
+        if unwrap:
+            return all_chunks_text[0], all_chunks_encoded[0]
         return all_chunks_text, all_chunks_encoded
     
     def get_embeddings(self, encoded_inputs: BatchEncoding, progress_bar: bool = False) -> np.ndarray:
@@ -216,6 +227,26 @@ class FAISSDocumentStore:
             print("Index or document store not found")
             return False
 
+    def _merge_results(self, distances: np.ndarray, chunk_ids: np.ndarray, top_k: int) -> list[dict]:
+        """Merge results from each chunk into one. TODO: Test other merging strategies"""
+        flat_dists = distances.flatten()
+        flat_ids = chunk_ids.flatten()
+        
+        # Create array of indices and sort by distance
+        indices = np.argsort(flat_dists)
+        
+        # Get unique chunk_ids while preserving order (first occurrence = best score)
+        _, unique_indices = np.unique(flat_ids[indices], return_index=True)
+        
+        # Sort unique_indices to maintain distance ordering and take top_k
+        final_indices = indices[np.sort(unique_indices)][:top_k]
+        
+        # Get final results
+        distances = flat_dists[final_indices]
+        chunk_ids = flat_ids[final_indices]
+
+        return distances, chunk_ids
+
     def search(self, query: str, top_k: int = 5) -> list[dict]:
         """Search for documents similar to the query"""
         if self.index is None:
@@ -223,14 +254,15 @@ class FAISSDocumentStore:
                 raise ValueError("Index not created or loaded")
         
         # Get embedding for the query
-        _, chunks_encoded = self.embedding_model.chunk_and_encode([query], progress_bar=False)
-        query_embedding = self.embedding_model.get_embeddings(chunks_encoded[0], progress_bar=False)  # TODO:  Embed all chunks
+        _, chunks_encoded = self.embedding_model.chunk_and_encode(query, progress_bar=False)
+        query_embedding = self.embedding_model.get_embeddings(chunks_encoded, progress_bar=False)
         
         # Search in the index
         distances, chunk_ids = self.index.search(query_embedding, top_k)
+        distances, chunk_ids = self._merge_results(distances, chunk_ids, top_k)
         
         results = []
-        for i, (distance, chunk_id) in enumerate(zip(distances[0], chunk_ids[0])):
+        for i, (distance, chunk_id) in enumerate(zip(distances, chunk_ids)):
             if chunk_id == -1:  # FAISS returns -1 if there are not enough results
                 continue
                 
@@ -238,9 +270,6 @@ class FAISSDocumentStore:
             chunk_row = self.chunk_store[self.chunk_store["chunk_id"] == chunk_id].iloc[0]
             doc_id = chunk_row["doc_id"]
             chunk_text = chunk_row["text"]
-            
-            # Get document information
-            doc_row = self.document_store[self.document_store["id"] == doc_id].iloc[0]
             
             results.append({
                 "rank": i + 1,
