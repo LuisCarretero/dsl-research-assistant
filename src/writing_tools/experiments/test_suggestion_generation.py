@@ -2,7 +2,7 @@ from dotenv import load_dotenv
 import os
 from tqdm import tqdm
 from writing_tools._base import _BaseSuggestionGenerator
-from writing_tools import SimpleSuggestionGenerator, OllamaInferenceModel
+from writing_tools import SimpleSuggestionGenerator, SummarySuggestionGenerator, OllamaInferenceModel
 from nltk.translate.bleu_score import sentence_bleu
 import re
 import ast
@@ -62,7 +62,7 @@ def compute_paper_bleu(suggestion_generator:_BaseSuggestionGenerator, paper_file
 #print(f"Bleu: {bleu}")
 
 paper_filename = "Abouee_Weakly_Supervised_End2End_Deep_Visual_Odometry_CVPRW_2024_paper"
-suggestion_generator = SimpleSuggestionGenerator(OllamaInferenceModel())
+suggestion_generator = SummarySuggestionGenerator(OllamaInferenceModel())
 
 path = os.path.join(DATA_DIR, "Conversions\\opencvf-data\\md\\"+paper_filename+".md")
 citation_path = os.path.join(CITATION_DIR, paper_filename+".json")

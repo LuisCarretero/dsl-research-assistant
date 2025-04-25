@@ -1,2 +1,3 @@
 from .inference_models import OllamaInferenceModel, HFInferenceModel
-from .suggestion_generation import SimpleSuggestionGenerator
+from .suggestion_generation import SimpleSuggestionGenerator, SummarySuggestionGenerator
+from .literature_review_generation import SimpleLiteratureReviewGenerator

@@ -24,6 +24,9 @@ class SimpleSuggestionGenerator(_BaseSuggestionGenerator):
         {citation_context}
         [END OF CONTEXT TO BE INCLUDED]
 
+        Keep in mind, the context comes from a different paper, so it is NOT the contribution 
+        of the paper you are writing, but is merely related to it.
+
         Your output MUST be short, and contain only one sentence.
         Before your output, write the keyword "Suggestion:".
         """
