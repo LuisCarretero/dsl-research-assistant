@@ -214,7 +214,7 @@ def get_ref_metadata_oa(ref_ids: List[str], id_key: str = 'openalex_id', progres
             })
     return np.array(res)
 
-def collect_orig_paper_metadata(raw_dir: str, output_fpath: str, max_papers: int = -1):
+def collect_orig_paper_metadata(raw_dir: str, output_fpath: str, max_papers: int = -1) -> None:
     """
     Collect metadata of original papers from Docling output directory.
     """
@@ -246,7 +246,7 @@ def collect_orig_paper_metadata(raw_dir: str, output_fpath: str, max_papers: int
 
     df.to_csv(output_fpath, index=False)
 
-def collect_ref_metadata(orig_metadata_fpath: str, output_fpath: str, max_papers: int = -1):
+def collect_ref_metadata(orig_metadata_fpath: str, output_fpath: str, max_papers: int = -1) -> None:
     """
     Collect metadata of references from specified by original paper metadata.
     """
@@ -277,3 +277,41 @@ def collect_ref_metadata(orig_metadata_fpath: str, output_fpath: str, max_papers
     ref_df = ref_df.drop_duplicates(subset=['oaid', 'doi'])  # Checked manually and in almost all (all but 10/30000 cases) the data agrees
 
     ref_df.to_csv(output_fpath, index=False)
+
+def convert_and_compare_refs(oaids: List[str], dois: List[str], ref_df: pd.DataFrame) -> Dict[str, Any]:
+    oaids = set(map(lambda x: x.lower(), oaids))
+    dois = set(map(lambda x: x.lower(), dois))
+
+    dois_from_oaids = ref_df.doi.str.lower()[ref_df.oaid.str.lower().isin(oaids)].tolist()
+    oaids_from_dois = ref_df.oaid.str.lower()[ref_df.doi.str.lower().isin(dois)].tolist()
+    res = {
+        'refs_oaids_from_dois': oaids_from_dois, 
+        'refs_dois_from_oaids': dois_from_oaids,
+    }
+
+    # Calculate intersection over union
+    if len(oaids_from_dois) > 0 and len(dois_from_oaids) > 0:
+        oaids_from_dois, dois_from_oaids = set(oaids_from_dois), set(dois_from_oaids)
+
+        iou_oaids = len(oaids_from_dois.intersection(oaids)) / len(oaids_from_dois.union(oaids))
+        iou_dois = len(dois_from_oaids.intersection(dois)) / len(dois_from_oaids.union(dois))
+        res['ref_jaccard'] = (iou_oaids + iou_dois) / 2
+    else:
+        res['ref_jaccard'] = None
+
+    return res
+
+def update_orig_ref_metadata(orig_metadata_fpath: str, ref_metadata_fpath: str) -> None:
+    """
+    Update original paper metadata with reference metadata from different sources.
+    """
+    df = pd.read_csv(orig_metadata_fpath)
+    df['oa_refs_oaid'] = df['oa_refs_oaid'].apply(parse_list_string)
+    df['ss_refs_doi'] = df['ss_refs_doi'].apply(parse_list_string)
+    ref_df = pd.read_csv(ref_metadata_fpath)
+
+    # Convert and compare refs
+    res = df.apply(lambda row: convert_and_compare_refs(row.oa_refs_oaid, row.ss_refs_doi, ref_df), axis=1)
+    df = pd.concat([df, pd.DataFrame(res.tolist())], axis=1)
+
+    df.to_csv(orig_metadata_fpath, index=False)
