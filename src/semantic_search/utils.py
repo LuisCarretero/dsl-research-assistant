@@ -289,10 +289,9 @@ def convert_and_compare_refs(oaids: List[str], dois: List[str], ref_df: pd.DataF
         'refs_dois_from_oaids': dois_from_oaids,
     }
 
-    # Calculate intersection over union
+    # Calculate Jaccard index (intersection over union)
     if len(oaids_from_dois) > 0 and len(dois_from_oaids) > 0:
         oaids_from_dois, dois_from_oaids = set(oaids_from_dois), set(dois_from_oaids)
-
         iou_oaids = len(oaids_from_dois.intersection(oaids)) / len(oaids_from_dois.union(oaids))
         iou_dois = len(dois_from_oaids.intersection(dois)) / len(dois_from_oaids.union(dois))
         res['ref_jaccard'] = (iou_oaids + iou_dois) / 2
@@ -311,6 +310,7 @@ def update_orig_ref_metadata(orig_metadata_fpath: str, ref_metadata_fpath: str) 
     ref_df = pd.read_csv(ref_metadata_fpath)
 
     # Convert and compare refs
+    print(f"Converting and comparing references")
     res = df.apply(lambda row: convert_and_compare_refs(row.oa_refs_oaid, row.ss_refs_doi, ref_df), axis=1)
     df = pd.concat([df, pd.DataFrame(res.tolist())], axis=1)
 
