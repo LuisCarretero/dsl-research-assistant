@@ -57,7 +57,7 @@ def similarity_ratio(a: str, b: str) -> float:
     """
     return SequenceMatcher(None, a.lower(), b.lower()).ratio()
 
-def get_orig_metadata_oa(title: str) -> Dict[str, Any]:
+def get_orig_metadata_oa(title: str, reraise: bool = False) -> Dict[str, Any]:
     """
     Retrieves metadata associated with original paper (as opposed to secondary references) via OpenAlex API (oa).
 
@@ -77,21 +77,28 @@ def get_orig_metadata_oa(title: str) -> Dict[str, Any]:
             res = search_results[0]
 
             # Extract ID: https://openalex.org/W4402916217 -> W4402916217
-            refs = map(lambda x: x.split('/')[-1], res.get('referenced_works', []))
+            refs = list(map(lambda x: x.split('/')[-1], res.get('referenced_works', [])))
             
             return {
-                'doi': res.get('doi'),
-                'oaid': res.get('id'),
+                'oaid': res.get('id').split('/')[-1],
+                'oa_doi': res.get('doi').split('https://doi.org/')[-1],
                 'oa_sim_score_1st': sim_score_1st,
                 'oa_sim_score_2nd': sim_score_2nd,
-                'refs_oaid': list(refs)
+                'oa_refs_oaid': refs
             }
-    
+        else:
+            print(f"Warning: Found {len(search_results)} results for \"{title}\" with OAID {res[0]['id']}")
     except Exception as e:
-        print(f"Error fetching metadata for \"{title}\": {e}")
+        if reraise: raise e
+        print(f"Error fetching OA metadata for \"{title}\": {e}")
     return {}
 
-def get_orig_metadata_ss(sch: SemanticScholar, title: str) -> Dict[str, Any]:
+def get_orig_metadata_ss(
+    sch: SemanticScholar, 
+    title: str, 
+    use_ref_query: bool = False, 
+    reraise: bool = False
+) -> Dict[str, Any]:
     """
     TODO: Combine into single API call if possible?
     Problem with above: SS paper class only has reference title and SSID so we would 
@@ -99,19 +106,31 @@ def get_orig_metadata_ss(sch: SemanticScholar, title: str) -> Dict[str, Any]:
 
     # TODO: search_paper() can throw ObjectNotFoundException. Handle this seperately?
     from semanticscholar.SemanticScholarException import ObjectNotFoundException
+
+    # TODO: Think about what to do with references without ID? 
+    # We have len(refs_ssid) < ref_cnt in most cases due to this.
     """
+       
     try:
         # Search SS paper by title
-        raw = sch.search_paper(title, fields=['paperId', 'externalIds', 'title', 'referenceCount'], match_title=True)
+        raw = sch.search_paper(title, fields=['paperId', 'externalIds', 'title', 'referenceCount', 'references'], match_title=True)
         ssid, title_ss, ref_cnt = raw['paperId'], raw['title'], raw['referenceCount']
         doi = raw['externalIds'].get('DOI') if raw['externalIds'] else None
         title_sim = similarity_ratio(title_ss, title)
+        refs_ssid = [x.get('paperId') for x in raw['references'] if x.get('paperId') is not None]
 
-        raw = sch.get_paper_references(paper_id=ssid, fields=['externalIds'], limit=1000)
+        if use_ref_query:
+            refs_raw = map(
+                lambda x: x['citedPaper'], 
+                sch.get_paper_references(paper_id=ssid, fields=['externalIds'], limit=1000).items
+            )
+        else:
+            refs_raw = sch.get_papers(paper_ids=refs_ssid, fields=['externalIds'])
 
+        # Parse external reference ids
         refs_doi = []
-        for item in raw.items:
-            external_ids = item['citedPaper'].get('externalIds')
+        for item in refs_raw:
+            external_ids = item['externalIds']
             if external_ids is None: continue
             ref_doi = external_ids.get('DOI')
             if ref_doi is None: 
@@ -119,15 +138,18 @@ def get_orig_metadata_ss(sch: SemanticScholar, title: str) -> Dict[str, Any]:
                 if ref_arxiv is None: continue
                 ref_doi = f'10.48550/arXiv.{ref_arxiv}'
             refs_doi.append(ref_doi)
+
         return {
             'ssid': ssid,
-            'doi_ss': doi,
+            'ss_doi': doi,
             'ss_sim_score': title_sim,
             'ss_ref_cnt': ref_cnt,
-            'refs_doi': refs_doi
+            'ss_refs_ssid': refs_ssid,
+            'ss_refs_doi': refs_doi
         }
     except Exception as e:
-        print(f"Error fetching metadata for title: \"{title}\": {e}")
+        if reraise: raise e
+        print(f"Error fetching SS metadata for title: \"{title}\": {e}")
     return {}
 
 def multithread_apply(data, func, n_workers: int = 5, progress_bar: bool = True, desc=None):
