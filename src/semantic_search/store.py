@@ -140,7 +140,7 @@ class FAISSDocumentStore:
         self.chunk_store_path = os.path.join(self.db_dir, 'chunk_store.parquet')
         self.embeddings_path = os.path.join(self.db_dir, 'embeddings.npy')
 
-    def create_index_from_directory(self, data_dir: str):
+    def create_index_from_directory(self, data_dir: str) -> None:
         """Create FAISS index from documents in the specified directory"""
         documents = []
 
@@ -156,9 +156,9 @@ class FAISSDocumentStore:
                 "text": doc_text
             })
 
-        return pd.DataFrame(documents)
+        self.create_index_from_df(pd.DataFrame(documents))
 
-    def create_index(self, documents: pd.DataFrame) -> faiss.IndexFlatL2:
+    def create_index_from_df(self, documents: pd.DataFrame) -> None:
         """
         Create FAISS index from documents preprocessed into a DataFrame.
         DataFrame must have the following columns: id, text (+ any other 
@@ -201,8 +201,6 @@ class FAISSDocumentStore:
         
         # Save the index and document store
         self._save_index_and_store()
-        
-        return self.index
     
     def _save_index_and_store(self) -> None:
         """Save FAISS index, document and chunk store to disk"""
@@ -227,7 +225,7 @@ class FAISSDocumentStore:
             print("Index or document store not found")
             return False
 
-    def _merge_results(self, distances: np.ndarray, chunk_ids: np.ndarray, top_k: int) -> list[dict]:
+    def _merge_query_results(self, distances: np.ndarray, chunk_ids: np.ndarray, top_k: int) -> tuple[np.ndarray, np.ndarray]:
         """Merge results from each chunk into one. TODO: Test other merging strategies"""
         flat_dists = distances.flatten()
         flat_ids = chunk_ids.flatten()
@@ -259,7 +257,7 @@ class FAISSDocumentStore:
         
         # Search in the index
         distances, chunk_ids = self.index.search(query_embedding, top_k)
-        distances, chunk_ids = self._merge_results(distances, chunk_ids, top_k)
+        distances, chunk_ids = self._merge_query_results(distances, chunk_ids, top_k)
         
         results = []
         for i, (distance, chunk_id) in enumerate(zip(distances, chunk_ids)):
