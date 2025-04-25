@@ -84,6 +84,7 @@ def get_orig_metadata_oa(title: str, reraise: bool = False) -> Dict[str, Any]:
                 'oa_doi': res.get('doi').split('https://doi.org/')[-1],
                 'oa_sim_score_1st': sim_score_1st,
                 'oa_sim_score_2nd': sim_score_2nd,
+                'oa_ref_cnt': len(refs),
                 'oa_refs_oaid': refs
             }
         else:
@@ -172,7 +173,7 @@ def uninvert_abstract(inv_index: Dict[str, List[int]]) -> str:
     l_inv = [(w, p) for w, pos in inv_index.items() for p in pos]
     return ' '.join(map(lambda x: x[0], sorted(l_inv, key=lambda x: x[1])))
 
-def get_ref_metadata(ref_ids: List[str], id_key: str = 'openalex_id', progress_bar: bool = False) -> np.ndarray:
+def get_ref_metadata_oa(ref_ids: List[str], id_key: str = 'openalex_id', progress_bar: bool = False) -> np.ndarray:
     """
     Get metadata of interest for each reference work using OpenAlex API. Searches by OpenAlex ID.
     """
@@ -195,20 +196,22 @@ def get_ref_metadata(ref_ids: List[str], id_key: str = 'openalex_id', progress_b
         #     print(f"Warning: Only {len(raw)} out of {len(batch)} references found for batch {i}")
 
         for item in raw:
-            abstract = uninvert_abstract(item['abstract_inverted_index']) if item['abstract_inverted_index'] is not None else ''
-            res.append((
-                item.get('id'),
-                item.get('doi'),
-                id_key,  # 
-                item.get('title'),
-                abstract, 
-                item.get('type'), 
-                item['topics'][0]['display_name'] if item['topics'] else None,
-                item['topics'][0]['domain']['display_name'] if item['topics'] else None,
-                item['topics'][0]['field']['display_name'] if item['topics'] else None,
-                item['topics'][0]['subfield']['display_name'] if item['topics'] else None
-            ))
-
+            if item['abstract_inverted_index'] is not None:
+                abstract = uninvert_abstract(item['abstract_inverted_index'])
+            else:
+                abstract = ''
+            res.append({
+                'oaid': item['id'].split('/')[-1] if item['id'] else None,
+                'doi': item['doi'].split('https://doi.org/')[-1] if item['doi'] else None,
+                'ref_via': id_key,
+                'title': item.get('title'),
+                'abstract': abstract, 
+                'type': item.get('type'), 
+                'topic': item['topics'][0]['display_name'] if item['topics'] else None,
+                'domain': item['topics'][0]['domain']['display_name'] if item['topics'] else None,
+                'field': item['topics'][0]['field']['display_name'] if item['topics'] else None,
+                'subfield': item['topics'][0]['subfield']['display_name'] if item['topics'] else None
+            })
     return np.array(res)
 
 def collect_orig_paper_metadata(raw_dir: str, output_fpath: str, max_papers: int = -1):
@@ -250,13 +253,12 @@ def collect_ref_metadata(orig_metadata_fpath: str, output_fpath: str, max_papers
     # Load original paper metadata
     df = pd.read_csv(orig_metadata_fpath)
     df = df.iloc[:max_papers]
-    df['refs_oaid'] = df['refs_oaid'].apply(parse_list_string)
-    df['refs_doi'] = df['refs_doi'].apply(parse_list_string)
-    # df[['total_references', 'references_in_dataset']] = df.apply(lambda x: count_references(x, df), axis=1, result_type='expand')
+    df['oa_refs_oaid'] = df['oa_refs_oaid'].apply(parse_list_string)
+    df['ss_refs_doi'] = df['ss_refs_doi'].apply(parse_list_string)
 
     # Retrieve reference metadata via OpenAlex API (using both DOI and OAID)
     results = []
-    for col, id_key, domain in zip(['refs_oaid', 'refs_doi'], ['openalex_id', 'doi'], ['openalex', 'doi']):
+    for col, id_key, domain in zip(['oa_refs_oaid', 'ss_refs_doi'], ['openalex_id', 'doi'], ['openalex', 'doi']):
         # Collects all refs
         all_refs = pd.Series(np.concatenate(df[col].values)).str.split(f'https://{domain}.org/').str[-1].unique().tolist()
         # Batch into to minimize API calls
@@ -264,14 +266,14 @@ def collect_ref_metadata(orig_metadata_fpath: str, output_fpath: str, max_papers
         # Call API multithreaded
         results.extend(multithread_apply(
             all_refs_batched, 
-            lambda x: get_ref_metadata(x, id_key=id_key), 
+            lambda x: get_ref_metadata_oa(x, id_key=id_key, progress_bar=False), 
             n_workers=5, 
-            desc=f'Pulling {domain} reference metadata via OpenAlex'
+            desc=f'Pulling {domain} reference metadata via OpenAlex',
+            progress_bar=True
         ))
     results = np.concatenate([res for res in results if len(res) > 0])
 
-    ref_df = pd.DataFrame(results, columns=['oaid', 'doi', 'ref_via', 'title', 'abstract', 'type', 'topic', 'domain', 'field', 'subfield'])
-
+    ref_df = pd.DataFrame(results.tolist())
     ref_df = ref_df.drop_duplicates(subset=['oaid', 'doi'])  # Checked manually and in almost all (all but 10/30000 cases) the data agrees
 
     ref_df.to_csv(output_fpath, index=False)
