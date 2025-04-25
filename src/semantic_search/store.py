@@ -7,12 +7,14 @@ from transformers import AutoTokenizer, AutoModel
 import torch
 from transformers.tokenization_utils_base import BatchEncoding
 from tqdm import tqdm
+import sys
 
 class LocalEmbeddingModel:
     def __init__(
         self, 
         model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
         chunk_size: int = 256,
+        chunk_overlap: int = 0,
         batch_size: int = 8,
         device: str = None
     ):
@@ -21,6 +23,7 @@ class LocalEmbeddingModel:
 
         self.batch_size = batch_size
         self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
 
         if device is None:
             self.device = torch.device(
@@ -36,24 +39,36 @@ class LocalEmbeddingModel:
         """
         Chunk texts at token level using the model's tokenizer and encode the chunks.
         TODO: Add overlap?
+
+        Didnt manage to call tokenizer.prepare_for_model batched so doing weird back and forth
+        conversion for now.
         """
         all_chunks_text = []
         all_chunks_encoded = []
 
         effective_chunk_size = self.chunk_size - 2  # Subtract 2 for the special tokens
+        stride = effective_chunk_size - self.chunk_overlap
 
-        texts_tokenized = self.tokenizer(texts, add_special_tokens=False, return_token_type_ids=False, return_attention_mask=False)
+        # Temporarily increase model_max_length to supress warning message.
+        tmp, self.tokenizer.model_max_length = self.tokenizer.model_max_length, sys.maxsize
+        texts_tokenized = self.tokenizer(
+            texts, 
+            add_special_tokens=False, 
+            return_token_type_ids=False, 
+            return_attention_mask=False,
+            padding=False,
+        )
+        self.tokenizer.model_max_length = tmp
 
         for text_tokenized in tqdm(texts_tokenized['input_ids'], desc="Chunking and encoding", disable=not progress_bar):
             # Create chunks of tokens
-            text_chunks, text_encoded_chunks = [], []
-            
-            for i in range(0, len(text_tokenized), effective_chunk_size):
+            text_chunks = []
+            for i in range(0, len(text_tokenized), stride):
                 chunk = text_tokenized[i:i+effective_chunk_size]
                 if len(chunk) > 0:  # Only keep non-empty chunks
                     chunk_text = self.tokenizer.decode(chunk)
                     text_chunks.append(chunk_text)
-            
+
             # Batch encode all chunks for this text
             if text_chunks:
                 encoded_chunks = self.tokenizer(
