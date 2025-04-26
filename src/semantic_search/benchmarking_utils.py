@@ -5,6 +5,7 @@ from typing import Tuple
 
 from semantic_search.utils import parse_list_string
 
+
 def get_good_papers_mask(df: pd.DataFrame) -> np.ndarray:
     # Retrieved title matches query title
     mask = (df.ss_sim_score >= 1)
@@ -17,7 +18,15 @@ def get_good_papers_mask(df: pd.DataFrame) -> np.ndarray:
     
     return mask
 
-def load_metadata(dirpath: str, filter_good_papers: bool = False) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def get_good_references_mask(df: pd.DataFrame) -> np.ndarray:
+    mask = (df.abstract.fillna('').apply(len) > 0)
+    return mask
+
+def load_metadata(
+        dirpath: str,
+        filter_good_papers: bool = False,
+        filter_good_references: bool = False
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
     dirpath = Path(dirpath)
     ref_df = pd.read_csv(dirpath / 'refs.csv')
     df = pd.read_csv(dirpath / 'orig.csv')
@@ -29,5 +38,9 @@ def load_metadata(dirpath: str, filter_good_papers: bool = False) -> Tuple[pd.Da
     if filter_good_papers:
         mask = get_good_papers_mask(df)
         df = df[mask]
+
+    if filter_good_references:
+        mask = get_good_references_mask(ref_df)
+        ref_df = ref_df[mask]
 
     return df, ref_df
