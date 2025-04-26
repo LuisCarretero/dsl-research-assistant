@@ -4,3 +4,5 @@ raw-data/
 db/
 *cache*
 __pycache__/
+*.out
+*.err
