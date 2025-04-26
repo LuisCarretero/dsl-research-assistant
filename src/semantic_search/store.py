@@ -13,10 +13,11 @@ from typing import Union
 class LocalEmbeddingModel:
     def __init__(
         self, 
-        model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
+        model_name: str = 'sentence-transformers/all-MiniLM-L6-v2',
         chunk_size: int = 256,
         chunk_overlap: int = 32,
         batch_size: int = 8,
+        index_metric: str = 'l2',  # l2 or ip (for inner product)
         device: str = None
     ):
         self.tokenizer = AutoTokenizer.from_pretrained(model_name) 
@@ -25,7 +26,7 @@ class LocalEmbeddingModel:
         self.batch_size = batch_size
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
-
+        self.index_metric = index_metric
         if device is None:
             self.device = torch.device(
                 "cuda" if torch.cuda.is_available() 
@@ -134,11 +135,11 @@ class FAISSDocumentStore:
         self.chunk_store = None  # Initialize chunk_store attribute
 
         # Data paths
-        self.db_dir = db_dir
-        self.index_path = os.path.join(self.db_dir, 'faiss_document_index.faiss')
-        self.document_store_path = os.path.join(self.db_dir, 'document_store.parquet')
-        self.chunk_store_path = os.path.join(self.db_dir, 'chunk_store.parquet')
-        self.embeddings_path = os.path.join(self.db_dir, 'embeddings.npy')
+        self.db_dir = Path(db_dir)
+        self.index_path = self.db_dir / 'faiss_document_index.faiss'
+        self.document_store_path = self.db_dir / 'document_store.parquet'
+        self.chunk_store_path = self.db_dir / 'chunk_store.parquet'
+        self.embeddings_path = self.db_dir / 'embeddings.npy'
 
     def create_index_from_directory(self, data_dir: str) -> None:
         """Create FAISS index from documents in the specified directory"""
@@ -193,7 +194,12 @@ class FAISSDocumentStore:
         
         # Create FAISS index
         emb_dim = embeddings.shape[1]
-        self.index = faiss.IndexFlatL2(emb_dim)
+        if self.index_metric == 'l2':
+            self.index = faiss.IndexFlatL2(emb_dim)
+        elif self.index_metric == 'ip':
+            self.index = faiss.IndexFlatIP(emb_dim)
+        else:
+            raise ValueError(f"Invalid index metric: {self.index_metric}")
         self.index = faiss.IndexIDMap(self.index)
         
         # Add embeddings to the index with their IDs
