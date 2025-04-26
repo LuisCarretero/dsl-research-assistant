@@ -16,7 +16,7 @@ class LocalEmbeddingModel:
         model_name: str = 'sentence-transformers/all-MiniLM-L6-v2',
         chunk_size: int = 256,
         chunk_overlap: int = 32,
-        batch_size: int = 8
+        batch_size: int = 8,
         device: str = None
     ):
         self.tokenizer = AutoTokenizer.from_pretrained(model_name) 
@@ -129,7 +129,7 @@ class FAISSDocumentStore:
     ):
         self.embedding_model = embedding_model
         self.index_metric = index_metric
-        
+
         # Data: FAISS index, documend and chunk store (both DataFrames)
         self.index = None
         self.document_store = None
@@ -189,7 +189,7 @@ class FAISSDocumentStore:
         })
 
         # Get embeddings for all chunks
-        print(f"Generating embeddings for {len(encoded_flattened)} chunks...")
+        print(f"Generating embeddings for {len(list(encoded_flattened.values())[0])} chunks...")
         embeddings = self.embedding_model.get_embeddings(encoded_flattened, progress_bar=True)
         self.embeddings = embeddings
         
@@ -214,7 +214,7 @@ class FAISSDocumentStore:
         os.makedirs(self.db_dir, exist_ok=True)
         
         # Save FAISS index, document and chunk store
-        faiss.write_index(self.index, self.index_path)
+        faiss.write_index(self.index, str(self.index_path))
         self.document_store.to_parquet(self.document_store_path)
         self.chunk_store.to_parquet(self.chunk_store_path)
         np.save(self.embeddings_path, self.embeddings)
@@ -222,7 +222,8 @@ class FAISSDocumentStore:
     def load_index(self) -> bool:
         """Load FAISS index and document store from disk"""
         if os.path.exists(self.index_path) and os.path.exists(self.document_store_path) and os.path.exists(self.chunk_store_path):
-            self.index = faiss.read_index(self.index_path)
+            self.index = faiss.read_index(str(self.index_path))
+            self.metric_type = ['ip', 'l2'][self.index.metric_type]
             self.document_store = pd.read_parquet(self.document_store_path)
             self.chunk_store = pd.read_parquet(self.chunk_store_path)
             self.embeddings = np.load(self.embeddings_path)
