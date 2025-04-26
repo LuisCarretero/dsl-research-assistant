@@ -16,8 +16,7 @@ class LocalEmbeddingModel:
         model_name: str = 'sentence-transformers/all-MiniLM-L6-v2',
         chunk_size: int = 256,
         chunk_overlap: int = 32,
-        batch_size: int = 8,
-        index_metric: str = 'l2',  # l2 or ip (for inner product)
+        batch_size: int = 8
         device: str = None
     ):
         self.tokenizer = AutoTokenizer.from_pretrained(model_name) 
@@ -26,7 +25,7 @@ class LocalEmbeddingModel:
         self.batch_size = batch_size
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
-        self.index_metric = index_metric
+        
         if device is None:
             self.device = torch.device(
                 "cuda" if torch.cuda.is_available() 
@@ -125,10 +124,12 @@ class FAISSDocumentStore:
     def __init__(
         self, 
         embedding_model: LocalEmbeddingModel,
+        index_metric: str = 'l2',  # l2 or ip (for inner product)
         db_dir: str = '../db',
     ):
         self.embedding_model = embedding_model
-
+        self.index_metric = index_metric
+        
         # Data: FAISS index, documend and chunk store (both DataFrames)
         self.index = None
         self.document_store = None
