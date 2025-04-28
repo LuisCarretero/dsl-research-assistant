@@ -1,40 +1,37 @@
-from .._base import _BaseSuggestionGenerator, _BaseInferenceModel
+from .._base import _BaseLiteratureReviewGenerator, _BaseInferenceModel
 import re
 
-class SimpleLiteratureReviewGenerator(_BaseSuggestionGenerator):
+class SimpleLiteratureReviewGenerator(_BaseLiteratureReviewGenerator):
     def __init__(self, inference_model:_BaseInferenceModel):
         self.inference_model = inference_model
 
-    def predict(self, existing_text:str, new_citations:dict[str, dict[str, str]]) -> str:
-        # Get all text prior to positions
-        citation_context = "\n".join([new_citations[c]["abstract"] for c in new_citations.keys()])
+    def predict(self, query:str, citations:list[dict[int, dict[str, str]]]) -> str:
+        references = ""
+        c = 1
+        for new_citations in citations:
+            for i in new_citations:
+                references += f"Reference {c}: {new_citations[i]['abstract']}\n"
+                c += 1
 
-        prompt_summary = f"""
-        You will be given the abstracts of multiple research papers.
-        Your goal is to summarize them briefly, in at most 50 words as if you were 
-        writing a literature review for a new research paper. Make sure to write
-        in an academic style. Do not mention the papers directly, but merely describe 
-        the concept they are talking about. Before your output, write the keyword "Review:"
+        prompt = f"""
+        New scientific paper abstract: 
+        {query}
 
-        Context: {citation_context}
+        Other reference paper abstracts:
+        {references}
+
+        You are writing the related work section of a new paper. You should
+        do this by including ONLY the information from provided reference paper abstracts. The
+        section should be written as a cohesive story, identifying the strengths and weaknesses
+        of the reference papers and placing the new work in that context. Whenever you include
+        information from one of the references, you should cite it by writing (@cite_#). Do not 
+        structure the section in bullet points, but make it a cohesive story, written in an 
+        academic style. Do not provide references at the end. Do not copy the abstracts of the 
+        reference papers directly, but consisely compare and constrast them to the main work. Do not
+        reference the new abstract paper.
+        
+        IMPORTANT: Before the output, make sure to write the keyword "@related_work:"
         """
-
-        # Predict based on previous text
-        prediction_summary = self.inference_model.predict(prompt_summary).replace("\n", "")
-        pos = list(re.finditer("Review:", prediction_summary))[-1].end()
-        summary = prediction_summary[pos:]
-
-        prompt_connect = f"""
-        You will be given an unfinished literature review, and a new segment to add to it.
-        Connect these two, without changing them much. Write in an academic style.
-        Before your output, write the kewyword "Review:"
-
-        Unfinished literature review: {existing_text}
-
-        New segment: {summary}
-        """
-        prediction_final = self.inference_model.predict(prompt_connect).replace("\n", "")
-        pos = list(re.finditer("Review:", prediction_final))[-1].end()
-        out = prediction_final[pos:]
-
+        prediction = self.inference_model.predict(prompt)
+        out = prediction.split("@related_work:")[-1]
         return out

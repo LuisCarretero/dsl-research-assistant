@@ -23,3 +23,12 @@ class _BaseSuggestionGenerator():
     @abc.abstractmethod
     def predict(self, existing_text:str, position_in_text:int, citation_context:list[str]) -> str:
         pass
+
+
+class _BaseLiteratureReviewGenerator():
+    """
+    Base class for generating literature reviews
+    """
+    @abc.abstractmethod
+    def predict(self, query:str, citations:list[dict[int, dict[str, str]]]) -> str:
+        pass
