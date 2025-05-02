@@ -12,7 +12,7 @@ class _BaseInferenceModel():
     """
 
     @abc.abstractmethod
-    def predict(self, prompt:str, **kwargs) -> str:
+    def predict(self, user_prompt:str, system_prompt:str, **call_kwargs) -> str:
         pass
     
 
