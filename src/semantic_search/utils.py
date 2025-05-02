@@ -1,9 +1,10 @@
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from typing import Tuple
+from typing import Tuple, List
 
 from semantic_search.data_retrieval.utils import parse_list_string
+from semantic_search.store import FAISSDocumentStore
 
 
 def get_good_papers_mask(df: pd.DataFrame) -> np.ndarray:
@@ -44,3 +45,7 @@ def load_metadata(
         ref_df = ref_df[mask]
 
     return df, ref_df
+
+def predict_refs_from_abstract(ds: FAISSDocumentStore, abstract: str, max_n_refs: int = 10) -> List[str]:
+    docs = ds.search(abstract, top_k=max_n_refs)
+    return list(set([doc['document_id'] for doc in docs]))

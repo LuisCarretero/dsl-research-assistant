@@ -12,8 +12,8 @@ def create_store() -> None:
     )
     store = FAISSDocumentStore(
         model, 
-        db_dir='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/db/references-2',
-        index_metric='ip'
+        db_dir='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/db/references-3',
+        index_metric='l2'
     )
 
     if not store.load_index():
