@@ -1,7 +1,7 @@
 import pandas as pd
 from pathlib import Path
 import re
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Iterable, Callable, Tuple
 import pyalex
 from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
@@ -32,7 +32,7 @@ def parse_list_string(x: str) -> List[str]:
         return [x]  # If it's a string but not a list format, treat as single item
     return []
 
-def extract_abstract_from_md(fpath: str):
+def extract_abstract_from_md(fpath: str) -> str:
     """
     Extract the abstract from a markdown file created by Docling.
     """
@@ -40,7 +40,7 @@ def extract_abstract_from_md(fpath: str):
     abstract_match = re.search(r'## Abstract\n\n(.*?)(?=\n\n## \d+\.)', doc_text, re.DOTALL)
     return abstract_match.group(1) if abstract_match else ''
 
-def get_title_from_fpath(fpath: str):
+def get_title_from_fpath(fpath: str) -> str:
     doc_text = Path(fpath).read_text(encoding="utf-8")
     title_match = re.search(r'## ([^\n#]+)', doc_text)
 
@@ -153,7 +153,7 @@ def get_orig_metadata_ss(
         print(f"Error fetching SS metadata for title: \"{title}\": {e}")
     return {}
 
-def multithread_apply(data, func, n_workers: int = 5, progress_bar: bool = True, desc=None):
+def multithread_apply(data: Iterable, func: Callable, n_workers: int = 5, progress_bar: bool = True, desc=None) -> List[Any]:
     with ThreadPoolExecutor(max_workers=n_workers) as executor:
         results = list(tqdm(
             executor.map(func, data),
@@ -163,7 +163,7 @@ def multithread_apply(data, func, n_workers: int = 5, progress_bar: bool = True,
         ))
     return results
 
-def count_references(row, df):
+def count_references(row: pd.Series, df: pd.DataFrame) -> Tuple[int, int]:
     total_refs = len(row['referenced_works'])
     dataset_oaids = set(df['oaid'].dropna())
     refs_in_dataset = sum(1 for ref in row['referenced_works'] if ref in dataset_oaids)
