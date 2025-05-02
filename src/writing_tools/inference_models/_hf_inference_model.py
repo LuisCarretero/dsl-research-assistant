@@ -10,15 +10,12 @@ class HFLocalInferenceModel(_BaseInferenceModel):
     def __init__(self, **model_kwargs):
         self.pipeline = pipeline(task="text-generation", **model_kwargs)
 
-    def predict(self, user_prompt:str, system_prompt:Union[str,None]=None, **kwargs) -> str:
+    def predict(self, user_prompt:str, system_prompt:Union[str,None]=None, **call_kwargs) -> str:
         messages = []
         if system_prompt is not None:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": user_prompt})
-        if self.run_locally:
-            output = self.pipeline(messages, **kwargs)[0]["generated_text"][1]["content"]
-        else:
-            output = self.client.chat_completion(messages, **kwargs).choices[0].message["content"]
+        output = self.pipeline(messages, **call_kwargs)[0]["generated_text"][1]["content"]
         return output
 
 
