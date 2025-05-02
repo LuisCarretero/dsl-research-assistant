@@ -3,7 +3,7 @@ import numpy as np
 from pathlib import Path
 from typing import Tuple
 
-from semantic_search.utils import parse_list_string
+from semantic_search.data_retrieval.utils import parse_list_string
 
 
 def get_good_papers_mask(df: pd.DataFrame) -> np.ndarray:

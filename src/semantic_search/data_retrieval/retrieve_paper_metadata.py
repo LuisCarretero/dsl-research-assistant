@@ -1,4 +1,4 @@
-from semantic_search.utils import collect_orig_paper_metadata, collect_ref_metadata, update_orig_ref_metadata
+from semantic_search.data_retrieval.utils import collect_orig_paper_metadata, collect_ref_metadata, update_orig_ref_metadata
 from pathlib import Path
 import argparse
 
