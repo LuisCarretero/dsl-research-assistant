@@ -3,12 +3,9 @@ from lexrank import LexRank
 
 
 class LexRankLiteratureReviewGenerator(_BaseLiteratureReviewGenerator):
-    def predict(self, query: str, citations: list[dict[int, dict[str, str]]]) -> str:
+    def predict(self, query: str, citations: list[str]) -> str:
         documents = [query]
-        sentences = []
-        for d in citations:
-            for c in d.keys():
-                sentences += d[c]["abstract"].split(".")
+        sentences = citations.split(".")
         lxr = LexRank(documents)
         summary = lxr.get_summary(sentences, summary_size=20)
         return ".".join(summary)

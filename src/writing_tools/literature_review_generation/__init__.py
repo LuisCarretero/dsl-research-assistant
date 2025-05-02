@@ -1,2 +1,2 @@
-from .simple_literature_review_generator import SimpleLiteratureReviewGenerator
+from .litllm_literature_review_generator import LitLLMLiteratureReviewGenerator
 from .lexrank_literature_review_generator import LexRankLiteratureReviewGenerator
