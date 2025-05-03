@@ -53,6 +53,6 @@ def predict_refs_from_abstract(ds: FAISSDocumentStore, abstract: str, max_n_refs
     # Sort by score if requested
     if sort:
         score_map = {chunk['doc_id']: chunk['score'] for chunk in chunks}
-        unique_ids = sorted(unique_ids, key=lambda doc_id: score_map[doc_id], reverse=False)
+        unique_ids = sorted(unique_ids, key=lambda doc_id: score_map[doc_id], reverse=True)
     
     return unique_ids

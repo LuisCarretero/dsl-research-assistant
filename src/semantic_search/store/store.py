@@ -207,13 +207,13 @@ class FAISSDocumentStore:
             print("Index or document store not found")
             return False
 
-    def _merge_query_results(self, distances: np.ndarray, chunk_ids: np.ndarray, top_k: int) -> tuple[np.ndarray, np.ndarray]:
+    def _merge_query_results(self, scores: np.ndarray, chunk_ids: np.ndarray, top_k: int) -> tuple[np.ndarray, np.ndarray]:
         """Merge results from each chunk into one. TODO: Test other merging strategies"""
-        flat_dists = distances.flatten()
+        flat_scores = scores.flatten()
         flat_ids = chunk_ids.flatten()
         
-        # Create array of indices and sort by distance
-        indices = np.argsort(flat_dists)
+        # Create array of indices and sort by decreasing score
+        indices = np.argsort(flat_scores)[::-1]
         
         # Get unique chunk_ids while preserving order (first occurrence = best score)
         _, unique_indices = np.unique(flat_ids[indices], return_index=True)
@@ -222,10 +222,19 @@ class FAISSDocumentStore:
         final_indices = indices[np.sort(unique_indices)][:top_k]
         
         # Get final results
-        distances = flat_dists[final_indices]
+        scores = flat_scores[final_indices]
         chunk_ids = flat_ids[final_indices]
 
-        return distances, chunk_ids
+        return scores, chunk_ids
+    
+    def _dist_to_score(self, distance: float | np.ndarray) -> float | np.ndarray:
+        """Convert distance to similarity score"""
+        if self.index_metric == 'l2':
+            return 1.0 / (1.0 + distance)
+        elif self.index_metric == 'ip':
+            return distance
+        else:
+            raise ValueError(f"Invalid index metric: {self.index_metric}")
 
     def search(self, query: str, top_k: int = 5) -> list[dict]:
         """Search for documents similar to the query"""
@@ -239,19 +248,19 @@ class FAISSDocumentStore:
         
         # Search in the index
         distances, chunk_ids = self.index.search(query_embedding, top_k)
-        distances, chunk_ids = self._merge_query_results(distances, chunk_ids, top_k)
+        
+        # Convert distances (l2 or ip) to scores (always want to maximise this)
+        scores = self._dist_to_score(distances)
+        scores, chunk_ids = self._merge_query_results(scores, chunk_ids, top_k)
         
         results = []
-        for i, (distance, chunk_id) in enumerate(zip(distances, chunk_ids)):
+        for i, (score, chunk_id) in enumerate(zip(scores, chunk_ids)):
             if chunk_id == -1:  # FAISS returns -1 if there are not enough results
                 continue
                 
             # Get chunk information
             chunk_row = self.chunk_store.loc[chunk_id]
-            res = {
-                "rank": i + 1,
-                "score": 1.0 / (1.0 + distance)  # Convert distance to similarity score
-            }
+            res = {"rank": i + 1, "score": score}
             res.update(chunk_row.to_dict())
             results.append(res)
         
