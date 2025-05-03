@@ -18,5 +18,5 @@ def calc_metric_at_levels(true: List[str], pred: List[str], levels: List[int], p
     metrics = {'ref_cnt': len(pred)}
     for level in levels:
         metrics.update({f'{k}_lvl{level}': v for k, v in score_predictions(true, pred[:level]).items()})
-    metrics.update({f'{k}_preflvl{pref_level}': v for k, v in score_predictions(true, pred).items()})
+    metrics.update({f'{k}_preflvl{pref_level}': v for k, v in score_predictions(true, pred[:pref_level]).items()})
     return metrics

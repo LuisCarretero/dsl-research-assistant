@@ -11,18 +11,22 @@ def create_store(
     model_name: str,
     metadata_dirpath: str,
     store_dirpath: str,
+    store_name: str | None = None,  # If none, will use model_name.replc
     index_metric: Literal['l2', 'ip'] = 'ip',
-    max_refs: int = -1
+    max_refs: int = -1,
+    store_documents: bool = True,
+    store_raw_embeddings: bool = True,
+    chunk_store_columns: list[str] = ['doi']
 ) -> None:
     
     model = create_embedding_model(model_name)
     store = FAISSDocumentStore(
         model, 
-        db_dir=os.path.join(store_dirpath, model_name.replace("/", "_")),
+        db_dir=os.path.join(store_dirpath, (store_name or model_name.replace("/", "_"))),
         index_metric=index_metric,
-        store_documents=True,
-        store_raw_embeddings=True,
-        chunk_store_columns=['doi', 'topic']
+        store_documents=store_documents,
+        store_raw_embeddings=store_raw_embeddings,
+        chunk_store_columns=chunk_store_columns
     )
 
     if not store.load_store():
@@ -36,14 +40,23 @@ if __name__ == "__main__":
     parser.add_argument('--model_name', type=str, required=True)
     parser.add_argument('--metadata_dirpath', type=str, default='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/raw-data/metadata3')
     parser.add_argument('--store_dirpath', type=str, default='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/db')
+    parser.add_argument('--store_name', type=str, default=None)
     parser.add_argument('--index_metric', type=str, default='ip')
     parser.add_argument('--max_refs', type=int, default=-1)
+    parser.add_argument('--store_documents', type=bool, default=False)
+    parser.add_argument('--store_raw_embeddings', type=bool, default=False)
+    parser.add_argument('--chunk_store_columns', type=str, default='doi', 
+                       help='Comma-separated list of columns to store in chunk store')
     args = parser.parse_args()
 
     create_store(
         model_name=args.model_name,
         metadata_dirpath=args.metadata_dirpath,
         store_dirpath=args.store_dirpath,
+        store_name=args.store_name,
         index_metric=args.index_metric,
-        max_refs=args.max_refs
+        max_refs=args.max_refs,
+        store_documents=args.store_documents,
+        store_raw_embeddings=args.store_raw_embeddings,
+        chunk_store_columns=args.chunk_store_columns.split(',')
     )

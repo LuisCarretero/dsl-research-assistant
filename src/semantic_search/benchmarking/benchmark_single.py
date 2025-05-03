@@ -1,6 +1,8 @@
 import pandas as pd
 from tqdm import tqdm
 from matplotlib import pyplot as plt
+import argparse
+import os
 
 from semantic_search.data_retrieval.utils import extract_abstract_from_md
 from semantic_search.store.store import FAISSDocumentStore
@@ -14,6 +16,7 @@ def compute_prec_recall_metrics(
     store_dirpath: str,
     results_dirpath: str
 ) -> None:
+    store_name = store_name.replace('/', '_')
 
     # Load paper and reference metadata
     print('Loading data...')
@@ -27,7 +30,7 @@ def compute_prec_recall_metrics(
 
     # Load document store
     print('Loading document store...')
-    ds = FAISSDocumentStore(db_dir=store_dirpath)
+    ds = FAISSDocumentStore(db_dir=os.path.join(store_dirpath, store_name))
     assert ds.load_store() # Make sure store has been initialized
 
     # Predict references
@@ -50,6 +53,7 @@ def extract_prec_recall_curves(
     results_dirpath: str,
     model_name: str
 ) -> None:
+    model_name = model_name.replace('/', '_')
     df = pd.read_csv(f'{results_dirpath}/results_{model_name}.csv')
 
     # Calculate mean metrics across all samples
@@ -86,14 +90,20 @@ def extract_prec_recall_curves(
 
 
 if __name__ == "__main__":
-    results_dirpath = '/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/benchmark_results'
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--model_name', type=str, required=True)
+    parser.add_argument('--metadata_dirpath', type=str, default='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/raw-data/metadata3')
+    parser.add_argument('--store_dirpath', type=str, default='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/db')
+    parser.add_argument('--results_dirpath', type=str, default='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/benchmark_results')
+    args = parser.parse_args()
+
     compute_prec_recall_metrics(
-        metadata_dirpath='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/raw-data/metadata3',
-        store_name='prdev_mini-gte',
-        store_dirpath='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/db/prdev_mini-gte',
-        results_dirpath=results_dirpath
+        metadata_dirpath=args.metadata_dirpath,
+        store_name=args.model_name,
+        store_dirpath=args.store_dirpath,
+        results_dirpath=args.results_dirpath
     )
     extract_prec_recall_curves(
-        results_dirpath=results_dirpath,
-        model_name='prdev_mini-gte'
+        results_dirpath=args.results_dirpath,
+        model_name=args.model_name
     )
