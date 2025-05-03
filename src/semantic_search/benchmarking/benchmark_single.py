@@ -1,22 +1,23 @@
 import pandas as pd
 from tqdm import tqdm
+from matplotlib import pyplot as plt
 
 from semantic_search.data_retrieval.utils import extract_abstract_from_md
 from semantic_search.store.store import FAISSDocumentStore
-from semantic_search.create_store import LocalEmbeddingModel
 from semantic_search.utils import predict_refs_from_abstract, load_metadata
-from semantic_search.benchmarking.utils import score_predictions
+from semantic_search.benchmarking.utils import calc_metric_at_levels
 
 
-def main() -> None:
+def compute_prec_recall_metrics(
+    metadata_dirpath: str, 
+    store_name: str,
+    store_dirpath: str,
+    results_dirpath: str
+) -> None:
 
     # Load paper and reference metadata
     print('Loading data...')
-    df, ref_df = load_metadata(
-        '/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/raw-data/metadata3',
-        filter_good_papers=True,
-        filter_good_references=True
-    )
+    df, ref_df = load_metadata(metadata_dirpath, filter_good_papers=True, filter_good_references=True)
     df['abstract'] = df['fpath'].apply(extract_abstract_from_md)
     df = df[df.abstract.apply(len) > 0]
 
@@ -26,26 +27,73 @@ def main() -> None:
 
     # Load document store
     print('Loading document store...')
-    store = FAISSDocumentStore(db_dir='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/db/allenai_specter2_prx')
-    assert store.load_store() # Make sure store has been initialized
+    ds = FAISSDocumentStore(db_dir=store_dirpath)
+    assert ds.load_store() # Make sure store has been initialized
 
     # Predict references
     print('Predicting references...')
-    max_n_refs = int(df.GT_refs.apply(len).mean())
-    print(f'Predicting {max_n_refs} references per paper')
+    ref_cnt = int(df.GT_refs.apply(len).mean())
+    max_n_refs = 200
+    ref_cnts = list(range(1, max_n_refs + 1))
     
     results = []
     for i, row in tqdm(df.iterrows(), total=len(df), desc='Predicting references'):
-        predicted_refs = predict_refs_from_abstract(store, row['abstract'], max_n_refs=max_n_refs)
-        results.append(predicted_refs)
-    df['predicted_refs'] = results
+        pred = predict_refs_from_abstract(ds, row['abstract'], max_n_refs=max_n_refs, sort=True)
+        metrics = calc_metric_at_levels(row['GT_refs'], pred, ref_cnts, ref_cnt)
+        results.append(metrics)
+    results_df = pd.DataFrame(results)
 
-    # Score predictions
-    metrics = df.apply(lambda row: score_predictions(row['GT_refs'], row['predicted_refs']), axis=1)
-    metrics_df = pd.DataFrame(metrics.tolist(), columns=['precision', 'recall', 'f1'])
-    print('Average metrics:')
-    print(metrics_df.mean())
+    # Save results
+    results_df.to_csv(f'{results_dirpath}/results_{store_name}.csv', index=False)
+
+def extract_prec_recall_curves(
+    results_dirpath: str,
+    model_name: str
+) -> None:
+    df = pd.read_csv(f'{results_dirpath}/results_{model_name}.csv')
+
+    # Calculate mean metrics across all samples
+    mean_metrics = df.mean(axis=0)
+
+    # Extract metrics for different levels
+    levels = []
+    precision_values = []
+    recall_values = []
+    f1_values = []
+
+    max_level = max([int(name.split('lvl')[-1]) for name in mean_metrics.index.tolist() if name.startswith('prec_lvl')])
+    for level in range(1, max_level + 1):  # Assuming levels 1-200 based on output
+        level_str = f'lvl{level}'
+        if f'prec_{level_str}' in mean_metrics:
+            levels.append(level)
+            precision_values.append(mean_metrics[f'prec_{level_str}'])
+            recall_values.append(mean_metrics[f'rec_{level_str}'])
+            f1_values.append(mean_metrics[f'f1_{level_str}'])
+
+    # Create the plot
+    plt.figure(figsize=(8, 5))
+    plt.plot(levels, precision_values, label='Precision', marker='', linewidth=2)
+    plt.plot(levels, recall_values, label='Recall', marker='', linewidth=2)
+    plt.plot(levels, f1_values, label='F1 Score', marker='', linewidth=2)
+
+    plt.xlabel('Number of References (k)')
+    plt.ylabel('Score')
+    plt.title('Precision, Recall, and F1 Score at Different Reference Levels')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(f'{results_dirpath}/precRecallCurve_{model_name}.png')
 
 
 if __name__ == "__main__":
-    main()
+    results_dirpath = '/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/benchmark_results'
+    compute_prec_recall_metrics(
+        metadata_dirpath='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/raw-data/metadata3',
+        store_name='prdev_mini-gte',
+        store_dirpath='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/db/prdev_mini-gte',
+        results_dirpath=results_dirpath
+    )
+    extract_prec_recall_curves(
+        results_dirpath=results_dirpath,
+        model_name='prdev_mini-gte'
+    )

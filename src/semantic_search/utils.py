@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Tuple, List
 
 from semantic_search.data_retrieval.utils import parse_list_string
-from semantic_search.store import FAISSDocumentStore
+from semantic_search.store.store import FAISSDocumentStore
 
 
 def get_good_papers_mask(df: pd.DataFrame) -> np.ndarray:
@@ -46,6 +46,13 @@ def load_metadata(
 
     return df, ref_df
 
-def predict_refs_from_abstract(ds: FAISSDocumentStore, abstract: str, max_n_refs: int = 10) -> List[str]:
-    docs = ds.search(abstract, top_k=max_n_refs)
-    return list(set([doc['document_id'] for doc in docs]))
+def predict_refs_from_abstract(ds: FAISSDocumentStore, abstract: str, max_n_refs: int = 10, sort: bool = True) -> List[str]:
+    chunks = ds.search(abstract, top_k=max_n_refs)
+    unique_ids = list(set([chunk['doc_id'] for chunk in chunks]))
+    
+    # Sort by score if requested
+    if sort:
+        score_map = {chunk['doc_id']: chunk['score'] for chunk in chunks}
+        unique_ids = sorted(unique_ids, key=lambda doc_id: score_map[doc_id], reverse=False)
+    
+    return unique_ids

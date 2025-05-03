@@ -6,3 +6,4 @@ db/
 __pycache__/
 *.out
 *.err
+benchmark_results/
