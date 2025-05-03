@@ -21,6 +21,7 @@ class LocalEmbeddingModel:
     ):
         self.tokenizer = AutoTokenizer.from_pretrained(model_name) 
         self.model = AutoModel.from_pretrained(model_name)
+        self.model_name = model_name
 
         self.batch_size = batch_size
         self.chunk_size = chunk_size
@@ -34,6 +35,7 @@ class LocalEmbeddingModel:
             )
         else:
             self.device = torch.device(device)
+        print(f'Using device: {self.device}')
         self.model.to(self.device)
 
     def chunk_and_encode(self, texts: Union[list[str], str], progress_bar: bool = False) -> tuple[list[str], list[dict]]:
@@ -98,6 +100,16 @@ class LocalEmbeddingModel:
             return all_chunks_text[0], all_chunks_encoded[0]
         return all_chunks_text, all_chunks_encoded
     
+    def _mean_pooling(self, token_embeddings: torch.Tensor, attention_mask: torch.Tensor | None = None):
+        """
+        Same operation as sentence_transformers.model.Pooling(ndim, pooling_mode='mean')
+        """
+        if attention_mask is None:
+            return torch.mean(token_embeddings, dim=1)
+        else:
+            input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+            return torch.sum(token_embeddings * input_mask_expanded, dim=1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+    
     def get_embeddings(self, encoded_inputs: BatchEncoding, progress_bar: bool = False) -> np.ndarray:
         """Generate embeddings from pre-tokenized inputs."""
 
@@ -107,15 +119,13 @@ class LocalEmbeddingModel:
 
             batch_dict = {k: v.to(self.device) for k, v in batch_encoded.items()}
             
-            # Get model output
             with torch.no_grad():
                 model_output = self.model(**batch_dict)
-            batch_embeddings = model_output.pooler_output
+
+            mean_pooling = self._mean_pooling(model_output['last_hidden_state'], batch_dict['attention_mask'])
+            mean_pooling = torch.nn.functional.normalize(mean_pooling, p=2, dim=1)
             
-            # Normalize embeddings
-            batch_embeddings = torch.nn.functional.normalize(batch_embeddings, p=2, dim=1)
-            
-            embeddings.append(batch_embeddings.cpu().numpy())
+            embeddings.append(mean_pooling.cpu().numpy())
         
         return np.vstack(embeddings)
 
@@ -180,6 +190,11 @@ class FAISSDocumentStore:
                     tmp[k] = []
                 tmp[k].append(v)
         encoded_flattened = {k: torch.cat(v) for k, v in tmp.items()}
+
+        # Get embeddings for all chunks
+        print(f"Generating embeddings for {len(list(encoded_flattened.values())[0])} chunks...")
+        embeddings = self.embedding_model.get_embeddings(encoded_flattened, progress_bar=True)
+        self.embeddings = embeddings
         
         # Create chunk store DataFrame
         self.chunk_store = pd.DataFrame({
@@ -188,11 +203,6 @@ class FAISSDocumentStore:
             "text": chunks_flattened
         })
 
-        # Get embeddings for all chunks
-        print(f"Generating embeddings for {len(list(encoded_flattened.values())[0])} chunks...")
-        embeddings = self.embedding_model.get_embeddings(encoded_flattened, progress_bar=True)
-        self.embeddings = embeddings
-        
         # Create FAISS index
         emb_dim = embeddings.shape[1]
         if self.index_metric == 'l2':
