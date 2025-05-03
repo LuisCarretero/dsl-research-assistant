@@ -8,7 +8,7 @@ import torch
 from transformers.tokenization_utils_base import BatchEncoding
 from tqdm import tqdm
 import sys
-from typing import Union, Literal, Dict, Any
+from typing import Union, Literal, Dict, Any, List
 import json
 
 
@@ -164,7 +164,24 @@ class FAISSDocumentStore:
         embedding_model: LocalEmbeddingModel | None = None,
         index_metric: Literal['l2', 'ip'] | None = None,
         db_dir: str = '../db',
+        store_raw_embeddings: bool = False,
+        store_documents: bool = False,
+        chunk_store_columns: List[str] = [],
     ) -> None:
+        """
+        Initialize a FAISSDocumentStore.
+
+        Args:
+            embedding_model: LocalEmbeddingModel instance
+            index_metric: Metric for the FAISS index
+            db_dir: Directory to store the database
+            store_raw_embeddings: Whether to store raw embeddings
+            store_documents: Whether to store documents
+            chunk_store_columns: 
+                List of columns to store in the chunk store. This is the data that will be returned by the search method.
+                The columns must be present in the document store.
+        """
+
         self.embedding_model = embedding_model
         self.index_metric = index_metric
 
@@ -172,6 +189,11 @@ class FAISSDocumentStore:
         self.index = None
         self.document_store = None
         self.chunk_store = None  # Initialize chunk_store attribute
+
+        # Settings
+        self.store_raw_embeddings = store_raw_embeddings
+        self.store_documents = store_documents
+        self.chunk_store_columns = chunk_store_columns
 
         # Data paths
         self.db_dir = db_dir
@@ -204,11 +226,11 @@ class FAISSDocumentStore:
         Create FAISS index from documents preprocessed into a DataFrame. DataFrame must have 
         the following columns: id, text (+ any other metadata columns which will be stored in the document store).
         """
-
-        self.document_store = documents
+        if self.store_documents:
+            self.document_store = documents
 
         all_chunks_text, all_chunks_encoded = self.embedding_model.chunk_and_encode(documents['text'].tolist(), progress_bar=True)
-        chunks_flattened = [item for sublist in all_chunks_text for item in sublist]
+        
         
         # Flatten encoded
         tmp = {}
@@ -222,14 +244,28 @@ class FAISSDocumentStore:
         # Get embeddings for all chunks
         print(f"Generating embeddings for {len(list(encoded_flattened.values())[0])} chunks...")
         embeddings = self.embedding_model.get_embeddings(encoded_flattened, progress_bar=True)
-        self.embeddings = embeddings
+        if self.store_raw_embeddings:
+            self.embeddings = embeddings
         
         # Create chunk store DataFrame
-        self.chunk_store = pd.DataFrame({
-            "chunk_id": list(range(len(chunks_flattened))),
-            "doc_id": np.repeat(documents['id'].tolist(), [len(chunk) for chunk in all_chunks_text]),
-            "text": chunks_flattened
-        })
+        chunk_cnts = [len(chunk) for chunk in all_chunks_text]
+        chunk_store = {
+            'chunk_id': list(range(sum(chunk_cnts))),  # FIXME: Change or simplify?
+            'doc_id': np.repeat(documents['id'].tolist(), chunk_cnts),
+        }
+
+        # Check that all columns in chunk_store_columns are present in the document store
+        assert all(col in documents.columns for col in self.chunk_store_columns), \
+            f"All columns in chunk_store_columns must be present in the document store"
+        
+        # Add columns to chunk store
+        for col in self.chunk_store_columns:
+            if col == 'text':  # text is special case as it differs from chunk to chunk for same doc
+                chunks_flattened = [item for sublist in all_chunks_text for item in sublist]
+                chunk_store['text'] = chunks_flattened
+            else:  # FIXME: Might want to force doc store to reduce memory (not repeating this metadata for every chunk)
+                chunk_store[col] = np.repeat(documents[col].tolist(), chunk_cnts)
+        self.chunk_store = pd.DataFrame(chunk_store).astype({'chunk_id': 'int64'}).set_index('chunk_id')
 
         # Create FAISS index
         emb_dim = embeddings.shape[1]
@@ -242,7 +278,7 @@ class FAISSDocumentStore:
         self.index = faiss.IndexIDMap(self.index)
         
         # Add embeddings to the index with their IDs
-        self.index.add_with_ids(embeddings, np.array(self.chunk_store['chunk_id']).astype('int64'))
+        self.index.add_with_ids(embeddings, np.array(self.chunk_store.index).astype('int64'))
         
         # Save the index and document store
         if write_to_disk:
@@ -250,7 +286,12 @@ class FAISSDocumentStore:
 
     def get_metadata(self) -> Dict[str, Any]:
         """Get metadata from the store"""
-        metadata = {'store': {'index_metric': self.index_metric}}
+        metadata = {'store': {
+            'index_metric': self.index_metric, 
+            'store_raw_embeddings': self.store_raw_embeddings,
+            'store_documents': self.store_documents,
+            'chunk_store_columns': self.chunk_store_columns
+        }}
         if self.embedding_model is not None:
             metadata['embedding_model'] = self.embedding_model.get_metadata()
         return metadata
@@ -263,31 +304,50 @@ class FAISSDocumentStore:
         with open(self.metadata_path, 'w') as f:
             json.dump(self.get_metadata(), f, indent=4)
         
-        # Save FAISS index, document and chunk store
+        # Save FAISS index and chunk store
         faiss.write_index(self.index, str(self.index_path))
-        self.document_store.to_parquet(self.document_store_path)
         self.chunk_store.to_parquet(self.chunk_store_path)
-        np.save(self.embeddings_path, self.embeddings)
+
+        # Optionally, save document store and raw embeddings
+        if self.store_documents:
+            self.document_store.to_parquet(self.document_store_path)
+        if self.store_raw_embeddings:
+            np.save(self.embeddings_path, self.embeddings)
 
     def load_store(self) -> bool:
         """Load FAISS index and document store from disk"""
         if os.path.exists(self.metadata_path):
             with open(self.metadata_path, 'r') as f:
                 metadata = json.load(f)
+
+            # Settings
             self.index_metric = metadata['store']['index_metric']
+            self.store_raw_embeddings = metadata['store']['store_raw_embeddings']
+            self.store_documents = metadata['store']['store_documents']
+            self.chunk_store_columns = metadata['store']['chunk_store_columns']
+
+            # Initialize embedding model
             if 'embedding_model' in metadata:
                 if self.embedding_model is None:
                     self.embedding_model = LocalEmbeddingModel(**metadata['embedding_model'])
                 else:
                     print(f'Embedding model already initialized, skipping metadata update')
 
+            # Load FAISS index
             self.index = faiss.read_index(str(self.index_path))
             faiss_metric_type = ['ip', 'l2'][self.index.metric_type]
             if faiss_metric_type != self.index_metric:
                 raise ValueError(f"Index metric mismatch between FAISS and store metadata: {faiss_metric_type} != {self.index_metric}")
-            self.document_store = pd.read_parquet(self.document_store_path)
+            
+            # Load document and chunk store
+            if self.store_documents:
+                self.document_store = pd.read_parquet(self.document_store_path)
             self.chunk_store = pd.read_parquet(self.chunk_store_path)
-            self.embeddings = np.load(self.embeddings_path)
+
+            # Load raw embeddings
+            if self.store_raw_embeddings:
+                self.embeddings = np.load(self.embeddings_path)
+
             print(f"Loaded index with {self.index.ntotal} vectors")
             return True
         else:
@@ -334,15 +394,12 @@ class FAISSDocumentStore:
                 continue
                 
             # Get chunk information
-            chunk_row = self.chunk_store[self.chunk_store["chunk_id"] == chunk_id].iloc[0]
-            doc_id = chunk_row["doc_id"]
-            chunk_text = chunk_row["text"]
-            
-            results.append({
+            chunk_row = self.chunk_store.loc[chunk_id]
+            res = {
                 "rank": i + 1,
-                "score": 1.0 / (1.0 + distance),  # Convert distance to similarity score
-                "document_id": doc_id,
-                "chunk_text": chunk_text
-            })
+                "score": 1.0 / (1.0 + distance)  # Convert distance to similarity score
+            }
+            res.update(chunk_row.to_dict())
+            results.append(res)
         
         return results

@@ -16,8 +16,11 @@ def create_store() -> None:
     )
     store = FAISSDocumentStore(
         model, 
-        db_dir=f'/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/db/{model_name.replace("/", "_")}_test1',
-        index_metric='ip'
+        db_dir=f'/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/db/{model_name.replace("/", "_")}_test2',
+        index_metric='ip',
+        store_documents=True,
+        store_raw_embeddings=True,
+        chunk_store_columns=['doi', 'topic']
     )
 
     if not store.load_store():
@@ -28,7 +31,7 @@ def create_store() -> None:
         )
         ref_df.rename(columns={'oaid': 'id', 'abstract': 'text'}, inplace=True)
 
-        store.create_index_from_df(ref_df.iloc[:1000])
+        store.create_index_from_df(ref_df.iloc[:100])
 
 
 if __name__ == "__main__":
