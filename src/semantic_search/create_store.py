@@ -5,15 +5,15 @@ from semantic_search.utils import load_metadata
 def create_store() -> None:
 
     model = LocalEmbeddingModel(
-        model_name='sentence-transformers/all-MiniLM-L6-v2',
-        chunk_size=256,
-        chunk_overlap=32,
+        model_name='prdev/mini-gte',  # 'sentence-transformers/all-MiniLM-L6-v2',
+        chunk_size=512,
+        chunk_overlap=64,
         batch_size=8
     )
     store = FAISSDocumentStore(
         model, 
-        db_dir='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/db/references-3',
-        index_metric='l2'
+        db_dir='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/db/prdev-mini-gte',
+        index_metric='ip'
     )
 
     if not store.load_index():

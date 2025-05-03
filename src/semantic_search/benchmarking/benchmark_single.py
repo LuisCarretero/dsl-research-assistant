@@ -1,4 +1,5 @@
 import pandas as pd
+from tqdm import tqdm
 
 from semantic_search.data_retrieval.utils import extract_abstract_from_md
 from semantic_search.store import FAISSDocumentStore
@@ -26,19 +27,24 @@ def main() -> None:
     # Load document store
     print('Loading document store...')
     model = LocalEmbeddingModel(
-        model_name='sentence-transformers/all-MiniLM-L6-v2',
-        chunk_size=256,
-        chunk_overlap=32,
+        model_name='prdev/mini-gte',  # 'sentence-transformers/all-MiniLM-L6-v2',
+        chunk_size=512,
+        chunk_overlap=64,
         batch_size=8
     )
-    store = FAISSDocumentStore(model, db_dir='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/db/references-3')
+    store = FAISSDocumentStore(model, db_dir='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/db/prdev-mini-gte')
     assert store.load_index() # Make sure store has been initialized
 
     # Predict references
     print('Predicting references...')
     max_n_refs = int(df.GT_refs.apply(len).mean())
     print(f'Predicting {max_n_refs} references per paper')
-    df['predicted_refs'] = df.abstract.apply(lambda x: predict_refs_from_abstract(store, x, max_n_refs=max_n_refs))
+    
+    results = []
+    for i, row in tqdm(df.iterrows(), total=len(df), desc='Predicting references'):
+        predicted_refs = predict_refs_from_abstract(store, row['abstract'], max_n_refs=max_n_refs)
+        results.append(predicted_refs)
+    df['predicted_refs'] = results
 
     # Score predictions
     metrics = df.apply(lambda row: score_predictions(row['GT_refs'], row['predicted_refs']), axis=1)

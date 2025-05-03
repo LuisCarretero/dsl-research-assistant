@@ -1,5 +1,9 @@
-
+#!/bin/bash
 # Script to setup interactive env on Euler
+
+echo "Loading modules"
+module load eth_proxy
+
 echo "Loading python environment"
 . $HOME/python_envs/dsl-research-assistant/bin/activate
 
