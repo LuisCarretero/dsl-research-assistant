@@ -8,7 +8,9 @@ import torch
 from transformers.tokenization_utils_base import BatchEncoding
 from tqdm import tqdm
 import sys
-from typing import Union
+from typing import Union, Literal, Dict, Any
+import json
+
 
 class LocalEmbeddingModel:
     def __init__(
@@ -17,7 +19,9 @@ class LocalEmbeddingModel:
         chunk_size: int = 256,
         chunk_overlap: int = 32,
         batch_size: int = 8,
-        device: str = None
+        device: str = None,
+        pooling_type: Literal['mean', 'last', 'cls'] = 'mean',  # cls is first token
+        normalize_embeddings: bool = True
     ):
         self.tokenizer = AutoTokenizer.from_pretrained(model_name) 
         self.model = AutoModel.from_pretrained(model_name)
@@ -37,6 +41,10 @@ class LocalEmbeddingModel:
             self.device = torch.device(device)
         print(f'Using device: {self.device}')
         self.model.to(self.device)
+
+        assert pooling_type in ['mean', 'last', 'cls'], f"Invalid pooling type: {pooling_type}"
+        self.pooling_type = pooling_type
+        self.normalize_embeddings = normalize_embeddings
 
     def chunk_and_encode(self, texts: Union[list[str], str], progress_bar: bool = False) -> tuple[list[str], list[dict]]:
         """
@@ -71,7 +79,7 @@ class LocalEmbeddingModel:
         )
         self.tokenizer.model_max_length = tmp
 
-        for text_tokenized in tqdm(texts_tokenized['input_ids'], desc="Chunking and encoding", disable=not progress_bar):
+        for text_tokenized in tqdm(texts_tokenized['input_ids'], desc='Chunking and encoding', disable=not progress_bar):
             # Create chunks of tokens
             text_chunks = []
             for i in range(0, len(text_tokenized), stride):
@@ -84,10 +92,10 @@ class LocalEmbeddingModel:
             if text_chunks:
                 encoded_chunks = self.tokenizer(
                     text_chunks,
-                    padding="max_length",
+                    padding='max_length',
                     max_length=self.chunk_size,
                     truncation=True,
-                    return_tensors="pt"
+                    return_tensors='pt'
                 )
             else:
                 encoded_chunks = None
@@ -109,7 +117,7 @@ class LocalEmbeddingModel:
         else:
             input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
             return torch.sum(token_embeddings * input_mask_expanded, dim=1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
-    
+
     def get_embeddings(self, encoded_inputs: BatchEncoding, progress_bar: bool = False) -> np.ndarray:
         """Generate embeddings from pre-tokenized inputs."""
 
@@ -122,21 +130,41 @@ class LocalEmbeddingModel:
             with torch.no_grad():
                 model_output = self.model(**batch_dict)
 
-            mean_pooling = self._mean_pooling(model_output['last_hidden_state'], batch_dict['attention_mask'])
-            mean_pooling = torch.nn.functional.normalize(mean_pooling, p=2, dim=1)
+            if self.pooling_type == 'mean':
+                pooled = self._mean_pooling(model_output['last_hidden_state'], batch_dict['attention_mask'])
+            elif self.pooling_type == 'last':
+                pooled = model_output['last_hidden_state'][:, -1, :]
+            elif self.pooling_type == 'cls':
+                pooled = model_output['last_hidden_state'][:, 0, :]
+            else:
+                raise ValueError(f"Invalid pooling type: {self.pooling_type}")
             
-            embeddings.append(mean_pooling.cpu().numpy())
+            if self.normalize_embeddings:
+                pooled = torch.nn.functional.normalize(pooled, p=2, dim=1)
+            
+            embeddings.append(pooled.cpu().numpy())
         
         return np.vstack(embeddings)
+    
+    def get_metadata(self) -> Dict[str, Any]:
+        """Get metadata from the model"""
+        return {
+            'model_name': self.model_name,
+            'chunk_size': self.chunk_size,
+            'chunk_overlap': self.chunk_overlap,
+            'batch_size': self.batch_size,
+            'pooling_type': self.pooling_type,
+            'normalize_embeddings': self.normalize_embeddings
+        }
 
 
 class FAISSDocumentStore:
     def __init__(
         self, 
-        embedding_model: LocalEmbeddingModel,
-        index_metric: str = 'l2',  # l2 or ip (for inner product)
+        embedding_model: LocalEmbeddingModel | None = None,
+        index_metric: Literal['l2', 'ip'] | None = None,
         db_dir: str = '../db',
-    ):
+    ) -> None:
         self.embedding_model = embedding_model
         self.index_metric = index_metric
 
@@ -146,11 +174,12 @@ class FAISSDocumentStore:
         self.chunk_store = None  # Initialize chunk_store attribute
 
         # Data paths
-        self.db_dir = Path(db_dir)
-        self.index_path = self.db_dir / 'faiss_document_index.faiss'
-        self.document_store_path = self.db_dir / 'document_store.parquet'
-        self.chunk_store_path = self.db_dir / 'chunk_store.parquet'
-        self.embeddings_path = self.db_dir / 'embeddings.npy'
+        self.db_dir = db_dir
+        self.metadata_path = os.path.join(self.db_dir, 'metadata.json')
+        self.index_path = os.path.join(self.db_dir, 'faiss_document_index.faiss')
+        self.document_store_path = os.path.join(self.db_dir, 'document_store.parquet')
+        self.chunk_store_path = os.path.join(self.db_dir, 'chunk_store.parquet')
+        self.embeddings_path = os.path.join(self.db_dir, 'embeddings.npy')
 
     def create_index_from_directory(self, data_dir: str) -> None:
         """Create FAISS index from documents in the specified directory"""
@@ -170,11 +199,10 @@ class FAISSDocumentStore:
 
         self.create_index_from_df(pd.DataFrame(documents))
 
-    def create_index_from_df(self, documents: pd.DataFrame) -> None:
+    def create_index_from_df(self, documents: pd.DataFrame, write_to_disk: bool = True) -> None:
         """
-        Create FAISS index from documents preprocessed into a DataFrame.
-        DataFrame must have the following columns: id, text (+ any other 
-        metadata columns which will be stored in the document store)
+        Create FAISS index from documents preprocessed into a DataFrame. DataFrame must have 
+        the following columns: id, text (+ any other metadata columns which will be stored in the document store).
         """
 
         self.document_store = documents
@@ -217,11 +245,23 @@ class FAISSDocumentStore:
         self.index.add_with_ids(embeddings, np.array(self.chunk_store['chunk_id']).astype('int64'))
         
         # Save the index and document store
-        self._save_index_and_store()
+        if write_to_disk:
+            self._save_store()
+
+    def get_metadata(self) -> Dict[str, Any]:
+        """Get metadata from the store"""
+        metadata = {'store': {'index_metric': self.index_metric}}
+        if self.embedding_model is not None:
+            metadata['embedding_model'] = self.embedding_model.get_metadata()
+        return metadata
     
-    def _save_index_and_store(self) -> None:
+    def _save_store(self) -> None:
         """Save FAISS index, document and chunk store to disk"""
-        os.makedirs(self.db_dir, exist_ok=True)
+        os.makedirs(self.db_dir, exist_ok=False)
+
+        # Save metadata
+        with open(self.metadata_path, 'w') as f:
+            json.dump(self.get_metadata(), f, indent=4)
         
         # Save FAISS index, document and chunk store
         faiss.write_index(self.index, str(self.index_path))
@@ -229,11 +269,22 @@ class FAISSDocumentStore:
         self.chunk_store.to_parquet(self.chunk_store_path)
         np.save(self.embeddings_path, self.embeddings)
 
-    def load_index(self) -> bool:
+    def load_store(self) -> bool:
         """Load FAISS index and document store from disk"""
-        if os.path.exists(self.index_path) and os.path.exists(self.document_store_path) and os.path.exists(self.chunk_store_path):
+        if os.path.exists(self.metadata_path):
+            with open(self.metadata_path, 'r') as f:
+                metadata = json.load(f)
+            self.index_metric = metadata['store']['index_metric']
+            if 'embedding_model' in metadata:
+                if self.embedding_model is None:
+                    self.embedding_model = LocalEmbeddingModel(**metadata['embedding_model'])
+                else:
+                    print(f'Embedding model already initialized, skipping metadata update')
+
             self.index = faiss.read_index(str(self.index_path))
-            self.metric_type = ['ip', 'l2'][self.index.metric_type]
+            faiss_metric_type = ['ip', 'l2'][self.index.metric_type]
+            if faiss_metric_type != self.index_metric:
+                raise ValueError(f"Index metric mismatch between FAISS and store metadata: {faiss_metric_type} != {self.index_metric}")
             self.document_store = pd.read_parquet(self.document_store_path)
             self.chunk_store = pd.read_parquet(self.chunk_store_path)
             self.embeddings = np.load(self.embeddings_path)
@@ -266,7 +317,7 @@ class FAISSDocumentStore:
     def search(self, query: str, top_k: int = 5) -> list[dict]:
         """Search for documents similar to the query"""
         if self.index is None:
-            if not self.load_index():
+            if not self.load_store():
                 raise ValueError("Index not created or loaded")
         
         # Get embedding for the query

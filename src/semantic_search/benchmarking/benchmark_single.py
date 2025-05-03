@@ -13,9 +13,9 @@ def main() -> None:
     # Load paper and reference metadata
     print('Loading data...')
     df, ref_df = load_metadata(
-    '/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/raw-data/metadata3',
-    filter_good_papers=True,
-    filter_good_references=True
+        '/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/raw-data/metadata3',
+        filter_good_papers=True,
+        filter_good_references=True
     )
     df['abstract'] = df['fpath'].apply(extract_abstract_from_md)
     df = df[df.abstract.apply(len) > 0]
@@ -26,14 +26,8 @@ def main() -> None:
 
     # Load document store
     print('Loading document store...')
-    model = LocalEmbeddingModel(
-        model_name='prdev/mini-gte',  # 'sentence-transformers/all-MiniLM-L6-v2',
-        chunk_size=512,
-        chunk_overlap=64,
-        batch_size=8
-    )
-    store = FAISSDocumentStore(model, db_dir='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/db/prdev-mini-gte')
-    assert store.load_index() # Make sure store has been initialized
+    store = FAISSDocumentStore(db_dir='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/db/allenai_specter2_prx')
+    assert store.load_store() # Make sure store has been initialized
 
     # Predict references
     print('Predicting references...')
