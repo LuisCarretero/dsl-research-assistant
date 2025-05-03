@@ -13,7 +13,7 @@ class LocalEmbeddingModel:
         chunk_size: int = 256,
         chunk_overlap: int = 32,
         batch_size: int = 8,
-        device: str = None,
+        device: str | None = None,
         pooling_type: Literal['mean', 'last', 'cls'] = 'mean',  # cls is first token
         normalize_embeddings: bool = True
     ):
@@ -150,3 +150,42 @@ class LocalEmbeddingModel:
             'pooling_type': self.pooling_type,
             'normalize_embeddings': self.normalize_embeddings
         }
+
+
+DEFAULT_MODEL_PARAMS = {
+    'sentence-transformers/all-MiniLM-L6-v2': dict(
+        chunk_size=256,
+        chunk_overlap=32,
+        batch_size=8,
+        pooling_type='mean',
+        normalize_embeddings=True
+    ),
+    'allenai/specter2': dict(
+        chunk_size=512,
+        chunk_overlap=64,
+        batch_size=8,
+        pooling_type='cls',
+        normalize_embeddings=True
+    ),
+    'prdev/mini-gte': dict(
+        chunk_size=512,
+        chunk_overlap=64,
+        batch_size=8,
+        pooling_type='cls',
+        normalize_embeddings=True
+    )
+}
+
+
+def create_embedding_model(model_name: str, device: str | None = None) -> LocalEmbeddingModel:
+    """
+    Create an embedding model from a model name using default parameters.
+    """
+    if model_name not in DEFAULT_MODEL_PARAMS:
+        raise ValueError(f"Invalid model name: {model_name}. Available models: {DEFAULT_MODEL_PARAMS.keys()}")
+    
+    params = DEFAULT_MODEL_PARAMS[model_name]
+    if device is None:
+        params['device'] = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu'
+
+    return LocalEmbeddingModel(**params)

@@ -2,7 +2,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from semantic_search.data_retrieval.utils import extract_abstract_from_md
-from semantic_search.store import FAISSDocumentStore
+from semantic_search.store.store import FAISSDocumentStore
 from semantic_search.create_store import LocalEmbeddingModel
 from semantic_search.utils import predict_refs_from_abstract, load_metadata
 from semantic_search.benchmarking.utils import score_predictions

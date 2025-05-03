@@ -1,4 +1,5 @@
-from semantic_search.store import LocalEmbeddingModel, FAISSDocumentStore
+from semantic_search.store.store import FAISSDocumentStore
+from semantic_search.store.models import create_embedding_model
 from semantic_search.utils import load_metadata
 
 
@@ -6,14 +7,7 @@ def create_store() -> None:
 
     model_name = 'allenai/specter2_base'
 
-    model = LocalEmbeddingModel(
-        model_name=model_name,
-        chunk_size=512,
-        chunk_overlap=64,
-        batch_size=8,
-        pooling_type='cls',
-        normalize_embeddings=True
-    )
+    model = create_embedding_model(model_name)
     store = FAISSDocumentStore(
         model, 
         db_dir=f'/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/db/{model_name.replace("/", "_")}_test2',
