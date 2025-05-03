@@ -20,7 +20,7 @@ class _BaseInferenceModel():
         if system_prompt is not None:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": user_prompt})
-        return self._predict(user_prompt, system_prompt, **call_kwargs)
+        return self._predict(messages, **call_kwargs)
     
     def set_default_call_kwargs(self, **default_call_kwargs):
         self.default_call_kwargs = default_call_kwargs

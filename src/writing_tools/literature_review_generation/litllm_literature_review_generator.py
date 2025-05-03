@@ -22,10 +22,9 @@ reference papers directly, but consisely compare and constrast them to the main 
 reference the new abstract paper.
 
 IMPORTANT:
-- Encase the related works section as follows:
-```related_work
+- Structure your output as follows:
+@related_work
 [THE SECTION HERE]
-```
 """
 
 PLAN_BASED_PROMPT = """
@@ -53,10 +52,9 @@ reference papers directly, but consisely compare and constrast them to the main 
 reference the new abstract paper.
 
 IMPORTANT: 
-- Encase the related works section as follows:
-```related_work
+- Structure your output as follows:
+@related_work
 [THE SECTION HERE]
-```
 """
 
 LEARNED_PLAN_PROMPT = """
@@ -85,14 +83,12 @@ Example:
 Plan: Generate the related work in [number] lines using max [number] words. Cite @cite_# on line [number]. Cite @cite_# on line [number].
 
 IMPORTANT: 
-- Output the plan first, and encase it as follows:
-```plan
-[THE PLAN GOES HERE]
-```
-- Output the related work section second, and encase it as follows:
-```related_work
+- Structure your output as follows:
+@plan
+[THE PLAN HERE]
+
+@related_work
 [THE SECTION HERE]
-```
 """
 
 SENTENCE_BY_SENTENCE_PROMPT = """
@@ -123,10 +119,9 @@ reference the new abstract paper.
 
 IMPORTANT: 
 - Output the FULL related work section, including the new sentence
-- Encase the related works section as follows:
-```related_work
+- Structure your output as follows:
+@related_work
 [THE SECTION HERE]
-```
 """
 
 
@@ -158,11 +153,12 @@ class LitLLMLiteratureReviewGenerator(_BaseLiteratureReviewGenerator):
                 plan:Union[str, None]=None, 
                 related_work_draft:Union[str, None]=None) -> str:
         references = ""
+        if citation_ids is None:
+            citation_ids = [i for i in range(len(citations))]
         for i, citation in enumerate(citations):
-            for i in citation:
-                references += f"Reference {i}: {citation}\n\n"
-        prompt = self.prompts[method]
+            references += f"Reference {citation_ids[i]}: {citation}\n\n"
 
+        prompt = self.prompts[method]
         if method == "vanilla":
             prompt = prompt.format(query, references)
         elif method == "plan":
@@ -174,7 +170,12 @@ class LitLLMLiteratureReviewGenerator(_BaseLiteratureReviewGenerator):
 
         prediction = self.inference_model.predict(prompt)
 
-        related_work = re.findall("```related_work(.*)```", prediction)[-1]
-        if method == "plan":
-            plan = re.findall("```plan(.*)```", prediction)[-1]
+        related_work = prediction.split("@related_work")[-1]
+        if method == "learned_plan":
+            s = prediction.replace(related_work, "")
+            s = prediction.replace("@related_work", "")
+            plan = s.split("@plan")[-1]
+        #if method == "plan":
+        #    plan = re.findall("```plan(.*)```", prediction)[-1]
+
         return related_work

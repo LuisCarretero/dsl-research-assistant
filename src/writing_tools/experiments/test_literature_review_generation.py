@@ -1,4 +1,4 @@
-from writing_tools import SimpleLiteratureReviewGenerator, LexRankLiteratureReviewGenerator
+from writing_tools import LitLLMLiteratureReviewGenerator, HFClientInferenceModel, LexRankLiteratureReviewGenerator
 from writing_tools.inference_models import OllamaInferenceModel
 from writing_tools._base import _BaseLiteratureReviewGenerator
 from dotenv import load_dotenv
@@ -80,30 +80,39 @@ def create_test_data():
         #related_works = processed["sections"]["2. Related Work"] if "2. Related Work" in processed["sections"] else None
         if related_work is not None and abstract is not None:
             # Extract all the citations
-            in_text_citations = re.findall("\[[0-9, ]+\]", related_work)
-            in_text_citations = [ast.literal_eval(citation) for citation in in_text_citations] # Convert references to list
+            in_text_citation_order = re.findall("\[[0-9, ]+\]", related_work)
+            in_text_citation_order = [ast.literal_eval(citation) for citation in in_text_citation_order] # Convert references to list
 
-            cleaned_in_text_citations = []
-            for l in in_text_citations:
+            cleaned_in_text_citation_order = []
+            reference_ids = set()
+            for l in in_text_citation_order:
                 cleaned_l = []
                 for c in l:
                     if c in citation_references.keys():
                         cleaned_l.append(c)
+                        reference_ids.add(c)
                 if len(cleaned_l) > 0:
-                    cleaned_in_text_citations.append(cleaned_l)
+                    cleaned_in_text_citation_order.append(cleaned_l)
 
-            references = []
-            for l in cleaned_in_text_citations:
-                d = {}
-                for c in l:
-                    d[c] = citation_references[c]
-                references.append(d)
+            reference_ids = sorted(list(reference_ids))
+        
+            #references = []
+            reference_abstracts = [citation_references[i]["abstract"] for i in reference_ids]
+            #reference_ids = list(citation_references.keys())
 
-            if len(cleaned_in_text_citations) > 0 and abstract.replace("\n", "") != "":
+            #for l in cleaned_in_text_citations:
+            #    d = {}
+            #    for c in l:
+            #        d[c] = citation_references[c]
+            #    references.append(d)
+
+            if len(cleaned_in_text_citation_order) > 0 and abstract.replace("\n", "") != "":
                 data_point = {
                     "abstract": abstract,
-                    "references": references,
-                    "literature_review": related_work,
+                    "reference_abstracts": reference_abstracts,
+                    "reference_ids": reference_ids,
+                    "in_text_citation_order": cleaned_in_text_citation_order,
+                    "related_work": related_work,
                     "paper_name": paper_filename.replace(".json", "")
                 }
 
@@ -120,9 +129,9 @@ def evaluate_literature_review_generator(model:_BaseLiteratureReviewGenerator, d
 
     for paper in tqdm(data):
         query = paper["abstract"]
-        references = paper["references"]
-        truth = paper["literature_review"]
-        prediction = model.predict(query, references)
+        reference_abstracts = paper["reference_abstracts"]
+        truth = paper["related_work"]
+        prediction = model.predict(query, reference_abstracts, citation_ids=paper["reference_ids"])
 
         predictions.append(prediction)
 
@@ -163,8 +172,19 @@ if __name__ == "__main__":
     '''
 
     data = create_test_data()
+    #print(data[0]["reference_ids"])
+    #print(data[0]["in_text_citation_order"])
 
     #rouge, predictions = evaluate_literature_review_generator(LexRankLiteratureReviewGenerator(), data[0:10])
-    rouge, predictions = evaluate_literature_review_generator(SimpleLiteratureReviewGenerator(OllamaInferenceModel()), data[0:1])
-    pprint.pprint(rouge)
+    #inference_model = OllamaInferenceModel()
+    #inference_model.set_default_call_kwargs(model="deepseek-r1:7B")
+    HF_KEY = os.environ.get("HF_KEY")
+
+    inference_model = HFClientInferenceModel(provider="novita", api_key=HF_KEY)
+    inference_model.set_default_call_kwargs(model="deepseek-ai/DeepSeek-R1")
+    rouge, predictions = evaluate_literature_review_generator(LitLLMLiteratureReviewGenerator(inference_model), data[0:1])
+    pprint.pprint(data[0]["reference_abstracts"])
     print(predictions[0])
+    print(data[0]["in_text_citation_order"])
+    #pprint.pprint(rouge)
+    #print(predictions[0])

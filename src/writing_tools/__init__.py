@@ -1,3 +1,3 @@
-from .inference_models import OllamaInferenceModel, HFInferenceModel
+from .inference_models import OllamaInferenceModel, HFLocalInferenceModel, HFClientInferenceModel
 from .suggestion_generation import SimpleSuggestionGenerator, SummarySuggestionGenerator
 from .literature_review_generation import LitLLMLiteratureReviewGenerator, LexRankLiteratureReviewGenerator
