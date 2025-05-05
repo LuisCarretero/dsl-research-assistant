@@ -5,13 +5,14 @@ from tqdm import tqdm
 import re
 import ast
 from pyalex import Works
+import pandas as pd
 
 load_dotenv()
 
 DATA_DIR = os.environ.get("DATA_DIR")
 
 def create_suggestion_test_dataset():
-    path = os.path.join(DATA_DIR, "Conversions\\opencvf-data\\md") # Path to the markdown papers
+    path = os.path.join(DATA_DIR, "challenge10_batch_1\\CVPR_2024Conversions\\opencvf-data\\md") # Path to the markdown papers
     store_path = "data\\citations" # Path where to store the data
 
     # Loop through all the papers
