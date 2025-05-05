@@ -27,65 +27,6 @@ IMPORTANT:
 [THE SECTION HERE]
 """
 
-PLAN_BASED_PROMPT = """
-<begin_new_scientific_abstract> 
-{}
-<end_new_scientific_abstract/>
-
-<begin_other_reference_paper_abstracts>
-{}
-<end_other_reference_paper_abstracts/>
-
-<begin_plan>
-{}
-<end_plan/>
-
-You are writing the related work section of a new paper. You should
-do this by including ONLY the information from provided reference paper abstracts. The
-section should be written as a cohesive story, identifying the strengths and weaknesses
-of the reference papers and placing the new work in that context. You are also provided a
-plan mentioning the total number of lines and the citations to refer in different lines.
-Whenever you include information from one of the references, you should cite it by writing @cite_#. 
-Do not  structure the section in bullet points, but make it a cohesive story, written in an 
-academic style. Do not provide references at the end. Do not copy the abstracts of the 
-reference papers directly, but consisely compare and constrast them to the main work. Do not
-reference the new abstract paper.
-
-IMPORTANT: 
-- Before the output, make sure to include the keyword: "@related_work"
-"""
-
-LEARNED_PLAN_PROMPT = """
-<begin_new_scientific_abstract> 
-{}
-<end_new_scientific_abstract/>
-
-<begin_other_reference_paper_abstracts>
-{}
-<end_other_reference_paper_abstracts/>
-
-You are writing the related work section of a new paper. You should
-do this by including ONLY the information from provided reference paper abstracts. The
-section should be written as a cohesive story, identifying the strengths and weaknesses
-of the reference papers and placing the new work in that context. 
-Whenever you include information from one of the references, you should cite it by writing @cite_#. 
-Do not  structure the section in bullet points, but make it a cohesive story, written in an 
-academic style. Do not provide references at the end. Do not copy the abstracts of the 
-reference papers directly, but consisely compare and constrast them to the main work. Do not
-reference the new abstract paper. You should first generate a plan, mentioning the total number of
-lines, words and the citations to refer to in different lines. You should follow this plan when generating
-sentences.
-
-Example:
-
-Plan: Generate the related work in [number] lines using max [number] words. Cite @cite_# on line [number]. Cite @cite_# on line [number].
-
-IMPORTANT: 
-- Output the plan before the related work
-- Before the plan, make sure to include the keyword: "@plan"
-- Before the related work, make sure to include the keyword: "@related_work"
-"""
-
 SENTENCE_BY_SENTENCE_PROMPT = """
 <begin_new_scientific_abstract> 
 {}
@@ -130,8 +71,6 @@ class LitLLMLiteratureReviewGenerator(_BaseLiteratureReviewGenerator):
     
     prompts = {
         "vanilla": VANILLA_PROMPT,
-        "plan": PLAN_BASED_PROMPT,
-        "learned_plan": LEARNED_PLAN_PROMPT,
         "sentence": SENTENCE_BY_SENTENCE_PROMPT
     }
 
@@ -143,7 +82,6 @@ class LitLLMLiteratureReviewGenerator(_BaseLiteratureReviewGenerator):
                 citations:list[str], 
                 citation_ids:Union[list[int], None]=None, 
                 method:str="vanilla",  
-                plan:Union[str, None]=None, 
                 related_work_draft:Union[str, None]=None) -> str:
         references = ""
         if citation_ids is None:
@@ -154,21 +92,11 @@ class LitLLMLiteratureReviewGenerator(_BaseLiteratureReviewGenerator):
         prompt = self.prompts[method]
         if method == "vanilla":
             prompt = prompt.format(query, references)
-        elif method == "plan":
-            prompt = prompt.format(query, references, plan)
-        elif method == "learned_plan":
-            prompt = prompt.format(query, references)
         elif method == "sentence":
             prompt = prompt.format(query, references, related_work_draft)
 
         prediction = self.inference_model.predict(prompt)
 
         related_work = prediction.split("@related_work")[-1]
-        if method == "learned_plan":
-            s = prediction.replace(related_work, "")
-            s = prediction.replace("@related_work", "")
-            plan = s.split("@plan")[-1]
-        #if method == "plan":
-        #    plan = re.findall("```plan(.*)```", prediction)[-1]
 
         return related_work
