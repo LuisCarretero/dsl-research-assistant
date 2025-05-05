@@ -1,0 +1,46 @@
+# Base stage for dependencies
+FROM node:18-alpine AS base
+
+# Set working directory
+WORKDIR /app
+
+# Dependencies stage
+FROM base AS deps
+
+# Copy package.json and package-lock.json
+COPY package.json package-lock.json* ./
+
+# Install dependencies
+RUN npm ci
+
+# Builder stage
+FROM base AS builder
+
+# Copy dependencies
+COPY --from=deps /app/node_modules ./node_modules
+
+# Copy application code
+COPY . .
+
+# Build application with proper client-side JS
+RUN npm run build
+
+# Runner stage
+FROM node:18-alpine AS runner
+
+WORKDIR /app
+
+# Set to production
+ENV NODE_ENV production
+
+# Copy everything needed to run the app
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/public ./public
+
+# Expose port
+EXPOSE 3000
+
+# Start the app
+CMD ["npm", "run", "start"]
