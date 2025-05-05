@@ -33,6 +33,8 @@ def create_store(
         _, ref_df = load_metadata(metadata_dirpath, filter_good_papers=True, filter_good_references=True)
         ref_df.rename(columns={'oaid': 'id', 'abstract': 'text'}, inplace=True)
         store.create_index_from_df(ref_df.iloc[:max_refs])
+    else:
+        print(f'Store {store_name} already exists in {store_dirpath}.')
 
 
 if __name__ == "__main__":

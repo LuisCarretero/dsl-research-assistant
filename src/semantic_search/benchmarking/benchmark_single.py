@@ -51,10 +51,10 @@ def compute_prec_recall_metrics(
 
 def extract_prec_recall_curves(
     results_dirpath: str,
-    model_name: str
+    store_name: str
 ) -> None:
-    model_name = model_name.replace('/', '_')
-    df = pd.read_csv(f'{results_dirpath}/results_{model_name}.csv')
+    store_name = store_name.replace('/', '_')
+    df = pd.read_csv(f'{results_dirpath}/results_{store_name}.csv')
 
     # Calculate mean metrics across all samples
     mean_metrics = df.mean(axis=0)
@@ -86,12 +86,12 @@ def extract_prec_recall_curves(
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig(f'{results_dirpath}/precRecallCurve_{model_name}.png')
+    plt.savefig(f'{results_dirpath}/precRecallCurve_{store_name}.png')
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model_name', type=str, required=True)
+    parser.add_argument('--store_name', type=str, required=True)
     parser.add_argument('--metadata_dirpath', type=str, default='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/raw-data/metadata3')
     parser.add_argument('--store_dirpath', type=str, default='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/db')
     parser.add_argument('--results_dirpath', type=str, default='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/benchmark_results')
@@ -99,11 +99,11 @@ if __name__ == "__main__":
 
     compute_prec_recall_metrics(
         metadata_dirpath=args.metadata_dirpath,
-        store_name=args.model_name,
+        store_name=args.store_name,
         store_dirpath=args.store_dirpath,
         results_dirpath=args.results_dirpath
     )
     extract_prec_recall_curves(
         results_dirpath=args.results_dirpath,
-        model_name=args.model_name
+        store_name=args.store_name
     )

@@ -11,6 +11,7 @@ import json
 
 from semantic_search.store.models import LocalEmbeddingModel
 
+
 class FAISSDocumentStore:
     def __init__(
         self, 
@@ -37,11 +38,12 @@ class FAISSDocumentStore:
 
         self.embedding_model = embedding_model
         self.index_metric = index_metric
-        if index_metric is None:
-            self.index_metric = self.embedding_model.preferred_index_metric
-        elif index_metric != self.embedding_model.preferred_index_metric:
-            print(f'[WARNING] Specified index metric {index_metric} does not match the embedding model '
-                  f'{self.embedding_model.model_name} preferred index metric {self.embedding_model.preferred_index_metric}.')
+        if self.embedding_model is not None:
+            if index_metric is None:
+                self.index_metric = self.embedding_model.preferred_index_metric
+            elif index_metric != self.embedding_model.preferred_index_metric:
+                print(f'[WARNING] Specified index metric {index_metric} does not match the embedding model '
+                    f'{self.embedding_model.model_name} preferred index metric {self.embedding_model.preferred_index_metric}.')
 
         # Data: FAISS index, documend and chunk store (both DataFrames)
         self.index = None

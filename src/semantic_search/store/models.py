@@ -176,7 +176,7 @@ DEFAULT_MODEL_PARAMS = {
         chunk_size=512,
         chunk_overlap=64,
         batch_size=8,
-        pooling_type='cls',
+        pooling_type='mean',
         normalize_embeddings=True,
         preferred_index_metric='ip'
     )
