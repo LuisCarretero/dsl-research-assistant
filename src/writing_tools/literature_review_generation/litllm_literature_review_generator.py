@@ -15,11 +15,12 @@ You are writing the related work section of a new paper. You should
 do this by including ONLY the information from provided reference paper abstracts. The
 section should be written as a cohesive story, identifying the strengths and weaknesses
 of the reference papers and placing the new work in that context. Whenever you include
-information from one of the references, you should cite it by writing @cite_#. Do not 
-structure the section in bullet points, but make it a cohesive story, written in an 
-academic style. Do not provide references at the end. Do not copy the abstracts of the 
+Whenever you include information from some references, you should cite them by listing them as follows: [@cite_#, @cite_#, ...], 
+where # is ONLY the number of each respective reference reference. ALWAYS cite references in this way, 
+do not cite them by writing things like "Reference #" or such. Do not structure the section in bullet points, but make it 
+a cohesive story, written in an academic style. Do not provide references at the end. Do not copy the abstracts of the 
 reference papers directly, but consisely compare and constrast them to the main work. Do not
-reference the new abstract paper.
+reference the new abstract paper. Do not provide any other output aside from the related work section.
 
 IMPORTANT:
 - Structure your output exactly as follows:
@@ -47,11 +48,11 @@ the next sentence. Your task is to write 1-2 new sentences for the related work 
 paraphrase the draft using ONLY the information in the new paper abstract and abstracts of other reference
 papers. Initially, the raw draft would be empty. The section should be written as a cohesive story, 
 identifying the strengths and weaknesses of the reference papers and placing the new work in that context. 
-Whenever you include information from one of the references, you should cite it by writing @cite_#. 
-Do not  structure the section in bullet points, but make it a cohesive story, written in an 
-academic style. Do not provide references at the end. Do not copy the abstracts of the 
+Whenever you include information from some references, you should cite them by listing them as follows: [@cite_#, @cite_#, ...], 
+where # is ONLY the number of each respective reference reference. Do not  structure the section in bullet points, 
+but make it a cohesive story, written in an academic style. Do not provide references at the end. Do not copy the abstracts of the 
 reference papers directly, but consisely compare and constrast them to the main work. Do not
-reference the new abstract paper.
+reference the new abstract paper. Do not provide any other output aside from the related work section.
 
 IMPORTANT: 
 - Output the FULL related work section, including the new sentence

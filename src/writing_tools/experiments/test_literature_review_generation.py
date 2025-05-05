@@ -56,7 +56,7 @@ def process_paper(paper_text:str):
 def create_test_data():
     test_data = []
 
-    data_path = os.path.join(DATA_DIR, "Conversions\\opencvf-data\\md")
+    data_path = os.path.join(DATA_DIR, "challenge10_batch_1\\CVPR_2024\\Conversions\\opencvf-data\\md")
 
     for paper_filename in tqdm(os.listdir(CITATION_DIR)):
         paper_path = os.path.join(data_path, paper_filename.replace(".json", ".md"))
@@ -180,8 +180,10 @@ if __name__ == "__main__":
     #inference_model.set_default_call_kwargs(model="deepseek-r1:7B")
     HF_KEY = os.environ.get("HF_KEY")
 
-    inference_model = HFClientInferenceModel(provider="novita", api_key=HF_KEY)
-    inference_model.set_default_call_kwargs(model="deepseek-ai/DeepSeek-R1")
+    #inference_model = HFClientInferenceModel(provider="novita", api_key=HF_KEY)
+    #inference_model.set_default_call_kwargs(model="deepseek-ai/DeepSeek-R1")
+    inference_model = OllamaInferenceModel()
+    inference_model.set_default_call_kwargs(model="deepseek-r1:7B")
     rouge, predictions = evaluate_literature_review_generator(LitLLMLiteratureReviewGenerator(inference_model), data[0:1])
     pprint.pprint(data[0]["reference_abstracts"])
     print(predictions[0])
