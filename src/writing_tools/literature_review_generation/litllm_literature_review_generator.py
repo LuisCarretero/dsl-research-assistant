@@ -22,7 +22,7 @@ reference papers directly, but consisely compare and constrast them to the main 
 reference the new abstract paper.
 
 IMPORTANT:
-- Structure your output as follows:
+- Structure your output exactly as follows:
 @related_work
 [THE SECTION HERE]
 """
@@ -52,9 +52,7 @@ reference papers directly, but consisely compare and constrast them to the main 
 reference the new abstract paper.
 
 IMPORTANT: 
-- Structure your output as follows:
-@related_work
-[THE SECTION HERE]
+- Before the output, make sure to include the keyword: "@related_work"
 """
 
 LEARNED_PLAN_PROMPT = """
@@ -83,12 +81,9 @@ Example:
 Plan: Generate the related work in [number] lines using max [number] words. Cite @cite_# on line [number]. Cite @cite_# on line [number].
 
 IMPORTANT: 
-- Structure your output as follows:
-@plan
-[THE PLAN HERE]
-
-@related_work
-[THE SECTION HERE]
+- Output the plan before the related work
+- Before the plan, make sure to include the keyword: "@plan"
+- Before the related work, make sure to include the keyword: "@related_work"
 """
 
 SENTENCE_BY_SENTENCE_PROMPT = """
@@ -107,7 +102,7 @@ SENTENCE_BY_SENTENCE_PROMPT = """
 You are writing the related work section of a new paper. You are writing this sentence by sentence.
 You are provided with an abstract of the new paper and a raw draft of the generated work till now. 
 Additionally, you will be provided with new abstracts of other reference papers ALL of which have to be cited in 
-the next sentence. Your task is to write 1 new sentence for the related work section of the document, or
+the next sentence. Your task is to write 1-2 new sentences for the related work section of the document, or
 paraphrase the draft using ONLY the information in the new paper abstract and abstracts of other reference
 papers. Initially, the raw draft would be empty. The section should be written as a cohesive story, 
 identifying the strengths and weaknesses of the reference papers and placing the new work in that context. 
@@ -119,9 +114,7 @@ reference the new abstract paper.
 
 IMPORTANT: 
 - Output the FULL related work section, including the new sentence
-- Structure your output as follows:
-@related_work
-[THE SECTION HERE]
+- Before the output, make sure to include the keyword: "@related_work"
 """
 
 
