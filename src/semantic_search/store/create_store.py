@@ -12,7 +12,7 @@ def create_store(
     metadata_dirpath: str,
     store_dirpath: str,
     store_name: str | None = None,  # If none, will use model_name.replc
-    index_metric: Literal['l2', 'ip'] = 'l2',
+    index_metric: Literal['l2', 'ip'] | None = None,
     max_refs: int = -1,
     store_documents: bool = True,
     store_raw_embeddings: bool = True,
@@ -41,7 +41,7 @@ if __name__ == "__main__":
     parser.add_argument('--metadata_dirpath', type=str, default='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/raw-data/metadata3')
     parser.add_argument('--store_dirpath', type=str, default='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/db')
     parser.add_argument('--store_name', type=str, default='main')
-    parser.add_argument('--index_metric', type=str, default='l2')
+    parser.add_argument('--index_metric', type=str, default=None)
     parser.add_argument('--max_refs', type=int, default=-1)
     parser.add_argument('--store_documents', type=bool, default=False)
     parser.add_argument('--store_raw_embeddings', type=bool, default=False)

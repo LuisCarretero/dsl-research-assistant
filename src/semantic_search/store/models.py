@@ -6,6 +6,7 @@ from tqdm import tqdm
 import sys
 from transformers.tokenization_utils_base import BatchEncoding
 
+
 class LocalEmbeddingModel:
     def __init__(
         self, 
@@ -15,7 +16,8 @@ class LocalEmbeddingModel:
         batch_size: int = 8,
         device: str | None = None,
         pooling_type: Literal['mean', 'last', 'cls'] = 'mean',  # cls is first token
-        normalize_embeddings: bool = True
+        normalize_embeddings: bool = True,
+        preferred_index_metric: Literal['l2', 'ip'] = 'l2'
     ):
         self.tokenizer = AutoTokenizer.from_pretrained(model_name) 
         self.model = AutoModel.from_pretrained(model_name)
@@ -39,6 +41,7 @@ class LocalEmbeddingModel:
         assert pooling_type in ['mean', 'last', 'cls'], f"Invalid pooling type: {pooling_type}"
         self.pooling_type = pooling_type
         self.normalize_embeddings = normalize_embeddings
+        self.preferred_index_metric = preferred_index_metric
 
     def chunk_and_encode(self, texts: Union[list[str], str], progress_bar: bool = False) -> tuple[list[str], list[dict]]:
         """
@@ -47,8 +50,7 @@ class LocalEmbeddingModel:
         Didnt manage to call tokenizer.prepare_for_model batched so doing weird back and forth
         conversion for now.
 
-        TODO: Allow for single text input (and return single in that case). 
-        Allow for np arrays or other iterable inputs.
+        TODO: Allow for np arrays or other iterable inputs.
         """
         if isinstance(texts, str):
             texts = [texts]
@@ -148,7 +150,8 @@ class LocalEmbeddingModel:
             'chunk_overlap': self.chunk_overlap,
             'batch_size': self.batch_size,
             'pooling_type': self.pooling_type,
-            'normalize_embeddings': self.normalize_embeddings
+            'normalize_embeddings': self.normalize_embeddings,
+            'preferred_index_metric': self.preferred_index_metric
         }
 
 
@@ -158,21 +161,24 @@ DEFAULT_MODEL_PARAMS = {
         chunk_overlap=32,
         batch_size=8,
         pooling_type='mean',
-        normalize_embeddings=True
+        normalize_embeddings=True,
+        preferred_index_metric='l2'
     ),
     'allenai/specter2': dict(
         chunk_size=512,
         chunk_overlap=64,
         batch_size=8,
         pooling_type='cls',
-        normalize_embeddings=True
+        normalize_embeddings=True,
+        preferred_index_metric='ip'
     ),
     'prdev/mini-gte': dict(
         chunk_size=512,
         chunk_overlap=64,
         batch_size=8,
         pooling_type='cls',
-        normalize_embeddings=True
+        normalize_embeddings=True,
+        preferred_index_metric='ip'
     )
 }
 
