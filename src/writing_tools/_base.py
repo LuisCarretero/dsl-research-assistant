@@ -11,6 +11,7 @@ class _BaseInferenceModel():
     Provides abstraction so multiple LLM packages can be used (e.g. HuggingFace or Ollama)
     """
     default_call_kwargs = {}
+    output_postprocess = lambda out : out
 
     def predict(self, user_prompt:str, system_prompt:Union[str, None]=None, **call_kwargs) -> str:
         for key in self.default_call_kwargs.keys():
@@ -20,10 +21,13 @@ class _BaseInferenceModel():
         if system_prompt is not None:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": user_prompt})
-        return self._predict(messages, **call_kwargs)
+        return self.output_postprocess(self._predict(messages, **call_kwargs))
     
     def set_default_call_kwargs(self, **default_call_kwargs):
         self.default_call_kwargs = default_call_kwargs
+
+    def postprocess_output(self, output:str):
+        return output
 
     @abc.abstractmethod
     def _predict(self, messages:List[Dict[str, str]], **call_kwargs) -> str:

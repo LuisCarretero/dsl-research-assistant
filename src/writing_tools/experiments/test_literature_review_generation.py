@@ -1,4 +1,4 @@
-from writing_tools import LitLLMLiteratureReviewGenerator, HFClientInferenceModel, LexRankLiteratureReviewGenerator
+from writing_tools import LitLLMLiteratureReviewGenerator, HFClientInferenceModel, LexRankLiteratureReviewGenerator, HFLocalInferenceModel
 from writing_tools.inference_models import OllamaInferenceModel
 from writing_tools._base import _BaseLiteratureReviewGenerator
 from dotenv import load_dotenv
@@ -10,6 +10,7 @@ from tqdm import tqdm
 from nltk.translate.bleu_score import sentence_bleu
 from rouge_score import rouge_scorer
 from rouge_score.scoring import Score
+import numpy as np
 
 load_dotenv()
 
@@ -184,9 +185,21 @@ if __name__ == "__main__":
     #inference_model.set_default_call_kwargs(model="deepseek-ai/DeepSeek-R1")
     inference_model = OllamaInferenceModel()
     inference_model.set_default_call_kwargs(model="deepseek-r1:7B")
-    rouge, predictions = evaluate_literature_review_generator(LitLLMLiteratureReviewGenerator(inference_model), data[0:1])
-    pprint.pprint(data[0]["reference_abstracts"])
+    def postprocess(out:str):
+        thoughts = re.findall("<think>[\S\s]*</think>", out)
+        for thought in thoughts:
+            out = out.replace(thought, "")
+        #print(thoughts)
+        return out
+    inference_model.output_postprocess = postprocess
+    #inference_model = HFLocalInferenceModel(model="E:\\ETH MSc Data Science\\Data Science Lab\\Models\\deepseek-r1-distill-qwen-1.5B\\model", 
+    #                                        tokenizer="E:\\ETH MSc Data Science\\Data Science Lab\\Models\\deepseek-r1-distill-qwen-1.5B\\tokenizer", 
+    #                                        device="cuda",
+    #                                        max_new_tokens=np.inf)
+    #inference_model.set_default_call_kwargs(max_tokens=np.inf)
+    rouge, predictions = evaluate_literature_review_generator(LitLLMLiteratureReviewGenerator(inference_model, method="vanilla"), data[0:1])
+    #pprint.pprint(data[0]["reference_abstracts"])
     print(predictions[0])
-    print(data[0]["in_text_citation_order"])
+    #print(data[0]["in_text_citation_order"])
     #pprint.pprint(rouge)
     #print(predictions[0])

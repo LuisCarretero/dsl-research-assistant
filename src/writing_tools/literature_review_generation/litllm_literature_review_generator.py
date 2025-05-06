@@ -1,5 +1,6 @@
 from .._base import _BaseLiteratureReviewGenerator, _BaseInferenceModel
 from typing import Union
+from tqdm import tqdm
 
 
 VANILLA_PROMPT = """
@@ -20,11 +21,26 @@ where # is ONLY the number of each respective reference reference. ALWAYS cite r
 do not cite them by writing things like "Reference #" or such. Do not structure the section in bullet points, but make it 
 a cohesive story, written in an academic style. Do not provide references at the end. Do not copy the abstracts of the 
 reference papers directly, but consisely compare and constrast them to the main work. Do not
-reference the new abstract paper. Do not provide any other output aside from the related work section.
+reference the new abstract paper. Do not provide any other output aside from the related work section. 
+Do not output the title of the section, only output the section itself.
 
 IMPORTANT:
-- Before the output, make sure to include the keyword: "@related_work"
+When citing a reference, cite it exactly with the format as specified above. 
+Example of citing:
+
+[@cite_1, @cite_32]
+
+In this example, two references, namely 1 and 32 are cited
+
+Another example of citing:
+
+[@cite_16]
+
+In this example, only one reference, namely 16 is cited.
 """
+#IMPORTANT:
+#- Before the output, make sure to include the keyword: "@related_work"
+#"""
 
 SENTENCE_BY_SENTENCE_PROMPT = """
 <begin_new_scientific_abstract> 
@@ -42,20 +58,22 @@ SENTENCE_BY_SENTENCE_PROMPT = """
 You are writing the related work section of a new paper. You are writing this sentence by sentence.
 You are provided with an abstract of the new paper and a raw draft of the generated work till now. 
 Additionally, you will be provided with new abstracts of other reference papers ALL of which have to be cited in 
-the next sentence. Your task is to write 1-2 new sentences for the related work section of the document, or
-paraphrase the draft using ONLY the information in the new paper abstract and abstracts of other reference
+the next sentence. Your task is to write 1-2 new sentences for the related work section of the document,
+using ONLY the information in the new paper abstract and abstracts of other reference
 papers. Initially, the raw draft would be empty. The section should be written as a cohesive story, 
 identifying the strengths and weaknesses of the reference papers and placing the new work in that context. 
 Whenever you include information from some references, you should cite them by listing them as follows: [@cite_#, @cite_#, ...], 
-where # is ONLY the number of each respective reference reference. Do not  structure the section in bullet points, 
+where # is ONLY the number of each respective reference reference. ALWAYS cite references in this way, 
+do not cite them by writing things like "Reference #" or such. Do not structure the section in bullet points, 
 but make it a cohesive story, written in an academic style. Do not provide references at the end. Do not copy the abstracts of the 
 reference papers directly, but consisely compare and constrast them to the main work. Do not
 reference the new abstract paper. Do not provide any other output aside from the related work section.
-
-IMPORTANT: 
-- Output the FULL related work section, including the new sentence
-- Before the output, make sure to include the keyword: "@related_work"
+Do not output the title of the section, only output the section itself.
 """
+#IMPORTANT: 
+#- Output only the newly generated sentence(s)
+#- Before the output, make sure to include the keyword: "@related_work"
+#"""
 
 
 class LitLLMLiteratureReviewGenerator(_BaseLiteratureReviewGenerator):
@@ -91,13 +109,16 @@ class LitLLMLiteratureReviewGenerator(_BaseLiteratureReviewGenerator):
         if self.method == "vanilla":
             related_work = self.predict_next(query, citations, citation_ids)
         elif self.method == "sentence":
-            related_work = related_work_draft if related_work_draft is None else ""
-            for citation_ids_next in citation_order:
+            if citation_order is None:
+                citation_order = [[i] for i in citation_ids]
+            related_work = related_work_draft if related_work_draft is not None else ""
+            for citation_ids_next in tqdm(citation_order, desc="Generating Related Work section..."):
                 citations_next = []
                 for i in range(len(citation_ids)):
                     if citation_ids[i] in citation_ids_next:
                         citations_next.append(citations[i])
-                related_work = self.predict_next(query, citations_next, citation_ids_next, related_work)
+                related_work += self.predict_next(query, citations_next, citation_ids_next, related_work)
+                #print(related_work)
             #self.prompt = prompt.format(query, references, related_work_draft)
 
         #prediction = self.inference_model.predict(prompt)
@@ -113,7 +134,7 @@ class LitLLMLiteratureReviewGenerator(_BaseLiteratureReviewGenerator):
                      related_work_draft:Union[str, None]=None):
         references = ""
         for i, citation in enumerate(citations):
-            references += f"Reference {citation_ids[i]}: {citation}\n\n"
+            references += f"@cite_{citation_ids[i]}: {citation}\n\n"
 
         prompt = self.prompts[self.method]
         if self.method == "vanilla":
@@ -123,7 +144,9 @@ class LitLLMLiteratureReviewGenerator(_BaseLiteratureReviewGenerator):
 
         prediction = self.inference_model.predict(prompt)
 
-        related_work = prediction.split("@related_work")[-1]
+        print(prediction)
 
-        return related_work
+        #related_work = prediction.split("@related_work")[-1]
+
+        return prediction#related_work
         

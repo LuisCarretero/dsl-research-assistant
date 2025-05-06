@@ -9,7 +9,7 @@ class HFLocalInferenceModel(_BaseInferenceModel):
         self.pipeline = pipeline(task="text-generation", **model_kwargs)
 
     def _predict(self, messages:List[Dict[str, str]], **call_kwargs) -> str:
-        output = self.pipeline(messages, **call_kwargs)[0]["generated_text"][1]["content"]
+        output = self.pipeline(messages, continue_final_message=True, **call_kwargs)[0]["generated_text"][1]["content"]
         return output
 
 
