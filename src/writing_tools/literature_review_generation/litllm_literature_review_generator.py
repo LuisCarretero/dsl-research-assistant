@@ -1,6 +1,6 @@
 from .._base import _BaseLiteratureReviewGenerator, _BaseInferenceModel
 from typing import Union
-import re
+
 
 VANILLA_PROMPT = """
 <begin_new_scientific_abstract> 
@@ -23,9 +23,7 @@ reference papers directly, but consisely compare and constrast them to the main 
 reference the new abstract paper. Do not provide any other output aside from the related work section.
 
 IMPORTANT:
-- Structure your output exactly as follows:
-@related_work
-[THE SECTION HERE]
+- Before the output, make sure to include the keyword: "@related_work"
 """
 
 SENTENCE_BY_SENTENCE_PROMPT = """
@@ -75,29 +73,57 @@ class LitLLMLiteratureReviewGenerator(_BaseLiteratureReviewGenerator):
         "sentence": SENTENCE_BY_SENTENCE_PROMPT
     }
 
-    def __init__(self, inference_model:_BaseInferenceModel):
+    def __init__(self, inference_model:_BaseInferenceModel, method:str="vanilla"):
         self.inference_model = inference_model
+        self.method = method
 
     def predict(self, 
                 query:str, 
                 citations:list[str], 
-                citation_ids:Union[list[int], None]=None, 
-                method:str="vanilla",  
-                related_work_draft:Union[str, None]=None) -> str:
-        references = ""
+                citation_ids:Union[list[int], None]=None,
+                related_work_draft:Union[str, None]=None,
+                citation_order:Union[list[list[int]], None]=None) -> str:
+
         if citation_ids is None:
             citation_ids = [i for i in range(len(citations))]
+
+        #prompt = self.prompts[self.method]
+        if self.method == "vanilla":
+            related_work = self.predict_next(query, citations, citation_ids)
+        elif self.method == "sentence":
+            related_work = related_work_draft if related_work_draft is None else ""
+            for citation_ids_next in citation_order:
+                citations_next = []
+                for i in range(len(citation_ids)):
+                    if citation_ids[i] in citation_ids_next:
+                        citations_next.append(citations[i])
+                related_work = self.predict_next(query, citations_next, citation_ids_next, related_work)
+            #self.prompt = prompt.format(query, references, related_work_draft)
+
+        #prediction = self.inference_model.predict(prompt)
+
+        #related_work = prediction.split("@related_work")[-1]
+
+        return related_work
+
+    def predict_next(self, 
+                     query:str, 
+                     citations:list[str], 
+                     citation_ids:Union[list[int], None]=None,
+                     related_work_draft:Union[str, None]=None):
+        references = ""
         for i, citation in enumerate(citations):
             references += f"Reference {citation_ids[i]}: {citation}\n\n"
 
-        prompt = self.prompts[method]
-        if method == "vanilla":
+        prompt = self.prompts[self.method]
+        if self.method == "vanilla":
             prompt = prompt.format(query, references)
-        elif method == "sentence":
-            prompt = prompt.format(query, references, related_work_draft)
+        elif self.method == "sentence":
+            self.prompt = prompt.format(query, references, related_work_draft)
 
         prediction = self.inference_model.predict(prompt)
 
         related_work = prediction.split("@related_work")[-1]
 
         return related_work
+        
