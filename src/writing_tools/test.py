@@ -60,8 +60,10 @@ def create_suggestion_test_dataset():
 
 if __name__ == "__main__":
     #create_suggestion_test_dataset()
-    import torch
-    print(torch.cuda.is_available())
+    import pandas as pd
+
+    df = pd.read_csv("E:\\ETH MSc Data Science\\Data Science Lab\\Data\\reference_data\\new_orig.csv")
+    print(df.columns)
     """
     from dotenv import load_dotenv
     import os

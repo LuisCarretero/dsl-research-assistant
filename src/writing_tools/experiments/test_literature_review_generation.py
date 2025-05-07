@@ -132,7 +132,7 @@ def evaluate_literature_review_generator(model:_BaseLiteratureReviewGenerator, d
         query = paper["abstract"]
         reference_abstracts = paper["reference_abstracts"]
         truth = paper["related_work"]
-        prediction = model.predict(query, reference_abstracts, citation_ids=paper["reference_ids"])
+        prediction = model.predict(query, reference_abstracts, citation_ids=paper["reference_ids"], citation_order=paper["in_text_citation_order"])
 
         predictions.append(prediction)
 
@@ -181,23 +181,23 @@ if __name__ == "__main__":
     #inference_model.set_default_call_kwargs(model="deepseek-r1:7B")
     HF_KEY = os.environ.get("HF_KEY")
 
-    #inference_model = HFClientInferenceModel(provider="novita", api_key=HF_KEY)
-    #inference_model.set_default_call_kwargs(model="deepseek-ai/DeepSeek-R1")
-    inference_model = OllamaInferenceModel()
-    inference_model.set_default_call_kwargs(model="deepseek-r1:7B")
+    inference_model = HFClientInferenceModel(provider="novita", api_key=HF_KEY)
+    inference_model.set_default_call_kwargs(model="deepseek-ai/DeepSeek-R1")
+    #inference_model = OllamaInferenceModel()
+    #inference_model.set_default_call_kwargs(model="deepseek-r1:7B")
     def postprocess(out:str):
         thoughts = re.findall("<think>[\S\s]*</think>", out)
         for thought in thoughts:
             out = out.replace(thought, "")
         #print(thoughts)
         return out
-    inference_model.output_postprocess = postprocess
+    inference_model.postprocess_output = postprocess
     #inference_model = HFLocalInferenceModel(model="E:\\ETH MSc Data Science\\Data Science Lab\\Models\\deepseek-r1-distill-qwen-1.5B\\model", 
     #                                        tokenizer="E:\\ETH MSc Data Science\\Data Science Lab\\Models\\deepseek-r1-distill-qwen-1.5B\\tokenizer", 
     #                                        device="cuda",
     #                                        max_new_tokens=np.inf)
     #inference_model.set_default_call_kwargs(max_tokens=np.inf)
-    rouge, predictions = evaluate_literature_review_generator(LitLLMLiteratureReviewGenerator(inference_model, method="vanilla"), data[0:1])
+    rouge, predictions = evaluate_literature_review_generator(LitLLMLiteratureReviewGenerator(inference_model, method="sentence"), data[0:1])
     #pprint.pprint(data[0]["reference_abstracts"])
     print(predictions[0])
     #print(data[0]["in_text_citation_order"])
