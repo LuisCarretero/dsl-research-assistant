@@ -129,6 +129,8 @@ class LocalEmbeddingModel:
             if self.pooling_type == 'mean':
                 pooled = self._mean_pooling(model_output['last_hidden_state'], batch_dict['attention_mask'])
             elif self.pooling_type == 'last':
+                raise NotImplementedError("Last pooling not implemented")  
+                # FIXME: Check if this needs attention_mask to not index padding values.
                 pooled = model_output['last_hidden_state'][:, -1, :]
             elif self.pooling_type == 'cls':
                 pooled = model_output['last_hidden_state'][:, 0, :]

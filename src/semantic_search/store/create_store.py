@@ -24,7 +24,7 @@ def create_store(
         model, 
         db_dir=os.path.join(store_dirpath, (store_name or model_name.replace("/", "_"))),
         index_metric=index_metric,
-        store_documents=store_documents,
+        store_raw_documents=store_documents,
         store_raw_embeddings=store_raw_embeddings,
         chunk_store_columns=chunk_store_columns
     )

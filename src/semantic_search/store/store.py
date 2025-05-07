@@ -5,9 +5,10 @@ import pandas as pd
 from pathlib import Path
 import torch
 from tqdm import tqdm
-from typing import Literal, Dict, Any, List
+from typing import Literal, Dict, Any, List, Tuple
 import json
-
+from rank_bm25 import BM25Okapi
+import pickle
 
 from semantic_search.store.models import LocalEmbeddingModel
 
@@ -19,8 +20,10 @@ class FAISSDocumentStore:
         index_metric: Literal['l2', 'ip'] | None = None,
         db_dir: str = '../db',
         store_raw_embeddings: bool = False,
-        store_documents: bool = False,
+        store_raw_documents: bool = False,
         chunk_store_columns: List[str] = [],
+        # retrieval_mode: Literal['embedding', 'keyword', 'hybrid'] = 'embedding',  TODO: <- Do it like this later
+        use_bm25: bool = False,
     ) -> None:
         """
         Initialize a FAISSDocumentStore.
@@ -52,8 +55,10 @@ class FAISSDocumentStore:
 
         # Settings
         self.store_raw_embeddings = store_raw_embeddings
-        self.store_documents = store_documents
+        self.store_raw_documents = store_raw_documents
         self.chunk_store_columns = chunk_store_columns
+        self.use_bm25 = use_bm25
+        self._store_doc_df = store_raw_documents or use_bm25
 
         # Data paths
         self.db_dir = db_dir
@@ -62,6 +67,7 @@ class FAISSDocumentStore:
         self.document_store_path = os.path.join(self.db_dir, 'document_store.parquet')
         self.chunk_store_path = os.path.join(self.db_dir, 'chunk_store.parquet')
         self.embeddings_path = os.path.join(self.db_dir, 'embeddings.npy')
+        self.bm25_path = os.path.join(self.db_dir, 'bm25.pkl')
 
     def create_index_from_directory(self, data_dir: str) -> None:
         """Create FAISS index from documents in the specified directory"""
@@ -86,8 +92,15 @@ class FAISSDocumentStore:
         Create FAISS index from documents preprocessed into a DataFrame. DataFrame must have 
         the following columns: id, text (+ any other metadata columns which will be stored in the document store).
         """
-        if self.store_documents:
+
+        if self.use_bm25:
+            self.setup_bm25(documents)
+
+        if self.store_raw_documents:
             self.document_store = documents
+        elif self.use_bm25:
+            # Store minimal version needed for retrieval
+            self.document_store = documents['id']
 
         all_chunks_text, all_chunks_encoded = self.embedding_model.chunk_and_encode(documents['text'].tolist(), progress_bar=True)
         
@@ -142,21 +155,23 @@ class FAISSDocumentStore:
         
         # Save the index and document store
         if write_to_disk:
-            self._save_store()
+            self.save_store()
 
     def get_metadata(self) -> Dict[str, Any]:
         """Get metadata from the store"""
         metadata = {'store': {
             'index_metric': self.index_metric, 
             'store_raw_embeddings': self.store_raw_embeddings,
-            'store_documents': self.store_documents,
-            'chunk_store_columns': self.chunk_store_columns
+            'store_raw_documents': self.store_raw_documents,
+            'chunk_store_columns': self.chunk_store_columns,
+            'use_bm25': self.use_bm25,
+            'store_doc_df': self._store_doc_df,
         }}
         if self.embedding_model is not None:
             metadata['embedding_model'] = self.embedding_model.get_metadata()
         return metadata
     
-    def _save_store(self) -> None:
+    def save_store(self) -> None:
         """Save FAISS index, document and chunk store to disk"""
         os.makedirs(self.db_dir, exist_ok=False)
 
@@ -164,12 +179,17 @@ class FAISSDocumentStore:
         with open(self.metadata_path, 'w') as f:
             json.dump(self.get_metadata(), f, indent=4)
         
+        # Save BM25 model
+        if self.use_bm25:
+            with open(self.bm25_path, 'wb') as f:
+                pickle.dump(self.bm25, f)
+
         # Save FAISS index and chunk store
         faiss.write_index(self.index, str(self.index_path))
         self.chunk_store.to_parquet(self.chunk_store_path)
 
         # Optionally, save document store and raw embeddings
-        if self.store_documents:
+        if self._store_doc_df:
             self.document_store.to_parquet(self.document_store_path)
         if self.store_raw_embeddings:
             np.save(self.embeddings_path, self.embeddings)
@@ -183,8 +203,10 @@ class FAISSDocumentStore:
             # Settings
             self.index_metric = metadata['store']['index_metric']
             self.store_raw_embeddings = metadata['store']['store_raw_embeddings']
-            self.store_documents = metadata['store']['store_documents']
+            self.store_raw_documents = metadata['store']['store_raw_documents']
             self.chunk_store_columns = metadata['store']['chunk_store_columns']
+            self.use_bm25 = metadata['store']['use_bm25']
+            self._store_doc_df = metadata['store']['store_doc_df']
 
             # Initialize embedding model
             if 'embedding_model' in metadata:
@@ -193,6 +215,11 @@ class FAISSDocumentStore:
                 else:
                     print(f'Embedding model already initialized, skipping metadata update')
 
+            # Load BM25 model
+            if self.use_bm25:
+                with open(self.bm25_path, 'rb') as f:
+                    self.bm25 = pickle.load(f)
+
             # Load FAISS index
             self.index = faiss.read_index(str(self.index_path))
             faiss_metric_type = ['ip', 'l2'][self.index.metric_type]
@@ -200,7 +227,7 @@ class FAISSDocumentStore:
                 raise ValueError(f"Index metric mismatch between FAISS and store metadata: {faiss_metric_type} != {self.index_metric}")
             
             # Load document and chunk store
-            if self.store_documents:
+            if self._store_doc_df:
                 self.document_store = pd.read_parquet(self.document_store_path)
             self.chunk_store = pd.read_parquet(self.chunk_store_path)
 
@@ -213,9 +240,24 @@ class FAISSDocumentStore:
         else:
             print("Index or document store not found")
             return False
+    
+    def _dist_to_score(self, distance: float | np.ndarray) -> float | np.ndarray:
+        """
+        Convert distance to similarity score
 
-    def _merge_query_results(self, scores: np.ndarray, chunk_ids: np.ndarray, top_k: int) -> tuple[np.ndarray, np.ndarray]:
-        """Merge results from each chunk into one. TODO: Test other merging strategies"""
+        Assuming the vectors are normalized, the score is always in [0, 1]
+        """
+        if self.index_metric == 'l2':
+            return 1.0 / (1.0 + distance)
+        elif self.index_metric == 'ip':
+            return (distance + 1.0) / 2.0
+        else:
+            raise ValueError(f"Invalid index metric: {self.index_metric}")
+
+    def _merge_chunked_query_results(self, scores: np.ndarray, chunk_ids: np.ndarray, top_k: int) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Merge results from each chunk into one. TODO: Test other merging strategies
+        """
         flat_scores = scores.flatten()
         flat_ids = chunk_ids.flatten()
         
@@ -232,33 +274,62 @@ class FAISSDocumentStore:
         scores = flat_scores[final_indices]
         chunk_ids = flat_ids[final_indices]
 
-        return scores, chunk_ids
-    
-    def _dist_to_score(self, distance: float | np.ndarray) -> float | np.ndarray:
-        """Convert distance to similarity score"""
-        if self.index_metric == 'l2':
-            return 1.0 / (1.0 + distance)
-        elif self.index_metric == 'ip':
-            return distance
-        else:
-            raise ValueError(f"Invalid index metric: {self.index_metric}")
-
-    def search(self, query: str, top_k: int = 5) -> list[dict]:
-        """Search for documents similar to the query"""
-        if self.index is None:
-            if not self.load_store():
-                raise ValueError("Index not created or loaded")
+        document_ids = self.chunk_store.loc[chunk_ids, 'doc_id']
+        # Get unique document IDs while preserving order (first occurrence = best score)
+        _, unique_doc_indices = np.unique(document_ids, return_index=True)
         
+        # Sort unique_doc_indices to maintain score ordering
+        final_doc_indices = np.sort(unique_doc_indices)
+        
+        # Get final document IDs and their corresponding scores
+        unique_doc_ids = document_ids.iloc[final_doc_indices].values
+        unique_scores = scores[final_doc_indices]
+        
+        # Apply saturating function to ensure scores don't exceed 1
+        # Using tanh-based function: 1 - exp(-score) which approaches 1 asymptotically
+        saturated_scores = 1.0 - np.exp(-unique_scores)
+        
+        # Return only the top_k results after deduplication
+        return saturated_scores[:top_k], unique_doc_ids[:top_k]
+    
+
+    def _search_embeddings(self, query: str, top_k: int = 5) -> List[Tuple[float, int]]:
+        """
+        
+        Returns: List of tuples (score, document_id)
+        """
+
         # Get embedding for the query
         _, chunks_encoded = self.embedding_model.chunk_and_encode(query, progress_bar=False)
         query_embedding = self.embedding_model.get_embeddings(chunks_encoded, progress_bar=False)
-        
+
         # Search in the index
         distances, chunk_ids = self.index.search(query_embedding, top_k)
+
+
+    def _search_bm25(self, query: str, top_k: int = 5) -> List[Tuple[float, int]]:
+        """
         
-        # Convert distances (l2 or ip) to scores (always want to maximise this)
-        scores = self._dist_to_score(distances)
-        scores, chunk_ids = self._merge_query_results(scores, chunk_ids, top_k)
+        Returns: List of tuples (score, document_id)
+        """
+        tokenized_query = query.split()
+        bm25_scores = self.bm25.get_scores(tokenized_query)
+        bm25_scores = bm25_scores / np.max(bm25_scores)
+        top_indices = np.argsort(bm25_scores)[:top_k]
+        return [(bm25_scores[idx], self.document_store['id'][idx]) for idx in top_indices]
+
+    def search(self, query: str, top_k: int = 5) -> list[dict]:
+        # TODO: 
+        """Search for documents similar to the query
+        
+        TODO: FIX THIS CODE PLEASE. This probably isnt working. This is untested (Markus said to write this down!)
+        
+        """
+        
+        if self.use_bm25:
+            scores, doc_ids = self._search_bm25(query, top_k)
+        else:
+            scores, doc_ids = self._search_embeddings(query, top_k)
         
         results = []
         for i, (score, chunk_id) in enumerate(zip(scores, chunk_ids)):
@@ -272,3 +343,11 @@ class FAISSDocumentStore:
             results.append(res)
         
         return results
+    
+    def setup_bm25(self, documents: pd.DataFrame):
+        """
+        Set up BM25 for keyword search.
+        Tokenizes all documents in the chunk store and initializes the BM25 model.
+        """
+        self.tokenized_corpus = [doc.split() for doc in documents['text'].tolist()]
+        self.bm25 = BM25Okapi(self.tokenized_corpus)
