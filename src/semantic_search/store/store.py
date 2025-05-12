@@ -22,8 +22,7 @@ class FAISSDocumentStore:
         store_raw_embeddings: bool = False,
         chunk_store_columns: List[str] = [],
         doc_store_columns: List[str] = [],
-        # retrieval_mode: Literal['embedding', 'keyword', 'hybrid'] = 'embedding',  TODO: <- Do it like this later
-        use_bm25: bool = False,
+        use_bm25: bool = True,
     ) -> None:
         """
         Initialize a FAISSDocumentStore.
@@ -248,44 +247,98 @@ class FAISSDocumentStore:
         else:
             raise ValueError(f"Invalid index metric: {self.index_metric}")
 
-    def _merge_chunked_query_results(self, scores: np.ndarray, chunk_ids: np.ndarray, top_k: int) -> tuple[np.ndarray, np.ndarray]:
+    def _merge_chunked_query_results(
+        self, 
+        distances_matrix: np.ndarray, 
+        chunk_ids_matrix: np.ndarray, 
+        top_k_docs: int
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
-        Merge results from each chunk into one. TODO: Test other merging strategies
-        """
-        flat_scores = scores.flatten()
-        flat_ids = chunk_ids.flatten()
-        
-        # Create array of indices and sort by decreasing score
-        indices = np.argsort(flat_scores)[::-1]
-        
-        # Get unique chunk_ids while preserving order (first occurrence = best score)
-        _, unique_indices = np.unique(flat_ids[indices], return_index=True)
-        
-        # Sort unique_indices to maintain distance ordering and take top_k
-        final_indices = indices[np.sort(unique_indices)][:top_k]
-        
-        # Get final results
-        scores = flat_scores[final_indices]
-        chunk_ids = flat_ids[final_indices]
+        Merges search results from multiple query chunks to find the top unique documents.
 
-        document_ids = self.chunk_store.loc[chunk_ids, 'doc_id']
-        # Get unique document IDs while preserving order (first occurrence = best score)
-        _, unique_doc_indices = np.unique(document_ids, return_index=True)
+        1. Flattening results from all query chunks.
+        2. Sorting all retrieved (document_chunk_id, distance) pairs based on distance
+           (ascending for L2, descending for IP).
+        3. Mapping chunk_ids to their parent doc_ids.
+        4. Identifying the best-scoring chunk for each unique document.
+        5. Converting these best distances to similarity scores using `self._dist_to_score`.
+        6. Returning the top `top_k_docs` documents, sorted by these final scores.
+
+        Args:
+            distances_matrix: NumPy array of distances, shape (n_query_chunks, k_retrieved_chunks_per_query_chunk).
+                              Distances are from the FAISS index search.
+            chunk_ids_matrix: NumPy array of chunk IDs, shape (n_query_chunks, k_retrieved_chunks_per_query_chunk).
+                              These are IDs of chunks in the FAISS index.
+            top_k_docs: The final number of unique documents to return.
+
+        Output:
+            A tuple containing:
+            - final_scores: NumPy array of similarity scores for the top documents.
+            - final_doc_ids: NumPy array of document IDs for the top documents.
+        """
+
+
+
+        flat_distances = distances_matrix.flatten()
+        flat_chunk_ids = chunk_ids_matrix.flatten()
+
+        # Filter out invalid chunk_ids (e.g., -1 from FAISS if k > ntotal)
+        valid_mask = flat_chunk_ids != -1
+        if not np.all(valid_mask): # Apply mask only if there are invalid entries
+            flat_distances = flat_distances[valid_mask]
+            flat_chunk_ids = flat_chunk_ids[valid_mask]
+
+        if len(flat_chunk_ids) == 0:
+            return np.array([]), np.array([])
+
+        # Sort based on distances:
+        if self.index_metric == 'l2':
+            sorted_indices = np.argsort(flat_distances)
+        elif self.index_metric == 'ip':
+            sorted_indices = np.argsort(flat_distances)[::-1]
+        else:
+            raise ValueError(f"Invalid index metric: {self.index_metric}")
+        sorted_distances = flat_distances[sorted_indices]
+        sorted_chunk_ids = flat_chunk_ids[sorted_indices]
+
+        # Get unique chunk IDs that appeared in results to efficiently query chunk_store
+        # unique_chunks_in_results will be sorted by chunk_id value.
+        # unique_indices_map allows mapping from unique_chunks_in_results back to sorted_chunk_ids.
+        # This step is not strictly necessary for correctness if using .reindex below,
+        # but can be useful for debugging or alternative mapping strategies.
+        # unique_chunks_in_results, _ = np.unique(sorted_chunk_ids, return_inverse=False)
+
+        # Fetch doc_ids for all chunks present in sorted_chunk_ids.
+        # self.chunk_store['doc_id'] is a Series indexed by chunk_id.
+        # .reindex(sorted_chunk_ids) efficiently maps these doc_ids to the sorted_chunk_ids order.
+        # This assumes all chunk_ids in sorted_chunk_ids are valid keys in self.chunk_store.
+        doc_ids_for_sorted_chunks = self.chunk_store['doc_id'].reindex(sorted_chunk_ids).values
         
-        # Sort unique_doc_indices to maintain score ordering
-        final_doc_indices = np.sort(unique_doc_indices)
+        # Check for NaNs which indicate missing chunk_ids in chunk_store (should not happen in a consistent DB)
+        nan_mask = pd.isna(doc_ids_for_sorted_chunks)
+        if np.any(nan_mask):
+            valid_doc_id_mask = ~nan_mask
+            sorted_distances = sorted_distances[valid_doc_id_mask]
+            doc_ids_for_sorted_chunks = doc_ids_for_sorted_chunks[valid_doc_id_mask]
+            if len(doc_ids_for_sorted_chunks) == 0:
+                return np.array([]), np.array([])
+
+        # Find the first occurrence of each doc_id in the score-sorted list.
+        _, first_occurrence_indices = np.unique(doc_ids_for_sorted_chunks, return_index=True)
         
-        # Get final document IDs and their corresponding scores
-        unique_doc_ids = document_ids.iloc[final_doc_indices].values
-        unique_scores = scores[final_doc_indices]
+        # To maintain the score order, sort these `first_occurrence_indices`.
+        final_selection_indices = np.sort(first_occurrence_indices)
+
+        # Get the best distances and corresponding doc_ids for unique documents
+        final_best_distances = sorted_distances[final_selection_indices]
+        final_doc_ids = doc_ids_for_sorted_chunks[final_selection_indices]
+
+        # Convert these best distances to similarity scores
+        final_scores = self._dist_to_score(final_best_distances)
         
-        # Apply saturating function to ensure scores don't exceed 1
-        # Using tanh-based function: 1 - exp(-score) which approaches 1 asymptotically
-        saturated_scores = 1.0 - np.exp(-unique_scores)
+        num_results = min(top_k_docs, len(final_scores))
         
-        # Return only the top_k results after deduplication
-        return saturated_scores[:top_k], unique_doc_ids[:top_k]
-    
+        return final_scores[:num_results], final_doc_ids[:num_results]
 
     def _search_embeddings(self, query: str, top_k: int = 5) -> tuple[np.ndarray, np.ndarray]:
         """
@@ -329,7 +382,16 @@ class FAISSDocumentStore:
 
         return top_scores, top_doc_ids
 
-    def search(self, query: str, top_k: int = 5, top_m_multiplier: int = 5, rrf_k: int = 60) -> list[dict]:
+    def search(
+        self, 
+        query: str, 
+        top_k: int = 5, 
+        top_m_multiplier: int = 5, 
+        rrf_k: int = 60,
+        retrieval_method: Literal['embedding', 'keyword', 'hybrid'] = 'hybrid',
+        return_scores: bool = False,
+        return_doc_metadata: bool = True
+    ) -> list[dict]:
         """
         Search for documents similar to the query using a hybrid approach (Embeddings + BM25 if enabled).
         Combines results using Reciprocal Rank Fusion (RRF).
@@ -345,16 +407,20 @@ class FAISSDocumentStore:
             A list of dictionaries, each representing a ranked document chunk with its score
             and metadata.
         """
-        top_m = top_k * top_m_multiplier
+        if retrieval_method in ['keyword', 'hybrid'] and not self.use_bm25:
+            raise ValueError("BM25 is not enabled for this store. Cannot use 'keyword' or 'hybrid' retrieval.")
 
-        # 1. Get results from embedding search
-        scores_emb, doc_ids_emb = self._search_embeddings(query, top_m)
+        if retrieval_method == 'embedding':
+            final_scores, final_doc_ids = self._search_embeddings(query, top_k)
+        elif retrieval_method == 'keyword':
+            final_scores, final_doc_ids = self._search_bm25(query, top_k)
+        elif retrieval_method == 'hybrid':
+            top_m = top_k * top_m_multiplier
 
-        # 2. Get results from BM25 search if enabled
-        if self.use_bm25:
+            scores_emb, doc_ids_emb = self._search_embeddings(query, top_m)
             scores_bm25, doc_ids_bm25 = self._search_bm25(query, top_m)
 
-            # 3. Combine results using Reciprocal Rank Fusion (RRF)
+            # Combine results using Reciprocal Rank Fusion (RRF)
             rank_emb = {doc_id: i for i, doc_id in enumerate(doc_ids_emb)}
             rank_bm25 = {doc_id: i for i, doc_id in enumerate(doc_ids_bm25)}
 
@@ -363,8 +429,8 @@ class FAISSDocumentStore:
             rrf_scores = {}
             for doc_id in all_doc_ids:
                 score = 0.0
+                # RRF formula: 1 / (k + rank)
                 if doc_id in rank_emb:
-                    # RRF formula: 1 / (k + rank)
                     score += 1.0 / (rrf_k + rank_emb[doc_id])
                 if doc_id in rank_bm25:
                     score += 1.0 / (rrf_k + rank_bm25[doc_id])
@@ -376,11 +442,8 @@ class FAISSDocumentStore:
             # Select top_k results
             final_doc_ids = sorted_doc_ids[:top_k]
             final_scores = [rrf_scores[doc_id] for doc_id in final_doc_ids]
-
         else:
-            # If not using BM25, just use the embedding results
-            final_doc_ids = doc_ids_emb[:top_k]
-            final_scores = scores_emb[:top_k]
+            raise ValueError(f"Invalid retrieval_method: {retrieval_method}. Choose from 'embedding', 'keyword', 'hybrid'.")
 
         # 4. Format results
         results = []
@@ -388,9 +451,9 @@ class FAISSDocumentStore:
             try:
                 # Get chunk information from the store
                 doc_row = self.document_store[self.document_store['id'] == doc_id].iloc[0]
-                res = {"rank": i + 1, "score": float(score)} # Ensure score is float
-                # Add all other columns from the chunk store row
-                res.update(doc_row.to_dict())
+                res = {'rank': i + 1, 'id': doc_id}
+                if return_scores: res['score'] = float(score)
+                if return_doc_metadata: res.update(doc_row.to_dict())
                 results.append(res)
             except KeyError:
                 print(f"Warning: Chunk ID {doc_id} not found in chunk_store.")
