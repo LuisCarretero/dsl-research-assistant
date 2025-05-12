@@ -20,8 +20,8 @@ class FAISSDocumentStore:
         index_metric: Literal['l2', 'ip'] | None = None,
         db_dir: str = '../db',
         store_raw_embeddings: bool = False,
-        store_raw_documents: bool = False,
         chunk_store_columns: List[str] = [],
+        doc_store_columns: List[str] = [],
         # retrieval_mode: Literal['embedding', 'keyword', 'hybrid'] = 'embedding',  TODO: <- Do it like this later
         use_bm25: bool = False,
     ) -> None:
@@ -55,10 +55,9 @@ class FAISSDocumentStore:
 
         # Settings
         self.store_raw_embeddings = store_raw_embeddings
-        self.store_raw_documents = store_raw_documents
         self.chunk_store_columns = chunk_store_columns
+        self.doc_store_columns = doc_store_columns
         self.use_bm25 = use_bm25
-        self._store_doc_df = store_raw_documents or use_bm25
 
         # Data paths
         self.db_dir = db_dir
@@ -96,14 +95,12 @@ class FAISSDocumentStore:
         if self.use_bm25:
             self.setup_bm25(documents)
 
-        if self.store_raw_documents:
+        if 'all' in self.doc_store_columns:
             self.document_store = documents
-        elif self.use_bm25:
-            # Store minimal version needed for retrieval
-            self.document_store = documents['id']
+        else:
+            self.document_store = documents[list(set(self.doc_store_columns + ['id']))]
 
         all_chunks_text, all_chunks_encoded = self.embedding_model.chunk_and_encode(documents['text'].tolist(), progress_bar=True)
-        
         
         # Flatten encoded
         tmp = {}
@@ -132,7 +129,8 @@ class FAISSDocumentStore:
             f"All columns in chunk_store_columns must be present in the document store"
         
         # Add columns to chunk store
-        for col in self.chunk_store_columns:
+        chunk_store_columns = documents.columns if 'all' in self.chunk_store_columns else self.chunk_store_columns
+        for col in chunk_store_columns:
             if col == 'text':  # text is special case as it differs from chunk to chunk for same doc
                 chunks_flattened = [item for sublist in all_chunks_text for item in sublist]
                 chunk_store['text'] = chunks_flattened
@@ -162,10 +160,9 @@ class FAISSDocumentStore:
         metadata = {'store': {
             'index_metric': self.index_metric, 
             'store_raw_embeddings': self.store_raw_embeddings,
-            'store_raw_documents': self.store_raw_documents,
             'chunk_store_columns': self.chunk_store_columns,
+            'doc_store_columns': self.doc_store_columns,
             'use_bm25': self.use_bm25,
-            'store_doc_df': self._store_doc_df,
         }}
         if self.embedding_model is not None:
             metadata['embedding_model'] = self.embedding_model.get_metadata()
@@ -189,8 +186,7 @@ class FAISSDocumentStore:
         self.chunk_store.to_parquet(self.chunk_store_path)
 
         # Optionally, save document store and raw embeddings
-        if self._store_doc_df:
-            self.document_store.to_parquet(self.document_store_path)
+        self.document_store.to_parquet(self.document_store_path)
         if self.store_raw_embeddings:
             np.save(self.embeddings_path, self.embeddings)
 
@@ -203,10 +199,9 @@ class FAISSDocumentStore:
             # Settings
             self.index_metric = metadata['store']['index_metric']
             self.store_raw_embeddings = metadata['store']['store_raw_embeddings']
-            self.store_raw_documents = metadata['store']['store_raw_documents']
             self.chunk_store_columns = metadata['store']['chunk_store_columns']
+            self.doc_store_columns = metadata['store']['doc_store_columns']
             self.use_bm25 = metadata['store']['use_bm25']
-            self._store_doc_df = metadata['store']['store_doc_df']
 
             # Initialize embedding model
             if 'embedding_model' in metadata:
@@ -227,8 +222,7 @@ class FAISSDocumentStore:
                 raise ValueError(f"Index metric mismatch between FAISS and store metadata: {faiss_metric_type} != {self.index_metric}")
             
             # Load document and chunk store
-            if self._store_doc_df:
-                self.document_store = pd.read_parquet(self.document_store_path)
+            self.document_store = pd.read_parquet(self.document_store_path)
             self.chunk_store = pd.read_parquet(self.chunk_store_path)
 
             # Load raw embeddings
@@ -293,12 +287,12 @@ class FAISSDocumentStore:
         return saturated_scores[:top_k], unique_doc_ids[:top_k]
     
 
-    def _search_embeddings(self, query: str, top_k: int = 5) -> List[Tuple[float, int]]:
+    def _search_embeddings(self, query: str, top_k: int = 5) -> tuple[np.ndarray, np.ndarray]:
         """
-        
-        Returns: List of tuples (score, document_id)
-        """
+        Performs semantic search using embeddings.
 
+        Returns: Tuple of (scores, document_ids)
+        """
         # Get embedding for the query
         _, chunks_encoded = self.embedding_model.chunk_and_encode(query, progress_bar=False)
         query_embedding = self.embedding_model.get_embeddings(chunks_encoded, progress_bar=False)
@@ -306,42 +300,102 @@ class FAISSDocumentStore:
         # Search in the index
         distances, chunk_ids = self.index.search(query_embedding, top_k)
 
+        # Merge results and convert distances to scores
+        return self._merge_chunked_query_results(distances, chunk_ids, top_k)
 
-    def _search_bm25(self, query: str, top_k: int = 5) -> List[Tuple[float, int]]:
+
+    def _search_bm25(self, query: str, top_k: int = 5) -> tuple[np.ndarray, np.ndarray]:
         """
-        
-        Returns: List of tuples (score, document_id)
+        Performs keyword search using BM25.
+
+        Returns: Tuple of (scores, document_ids)
         """
         tokenized_query = query.split()
-        bm25_scores = self.bm25.get_scores(tokenized_query)
-        bm25_scores = bm25_scores / np.max(bm25_scores)
-        top_indices = np.argsort(bm25_scores)[:top_k]
-        return [(bm25_scores[idx], self.document_store['id'][idx]) for idx in top_indices]
+        if not tokenized_query:
+            return np.array([]), np.array([])
 
-    def search(self, query: str, top_k: int = 5) -> list[dict]:
-        # TODO: 
-        """Search for documents similar to the query
-        
-        TODO: FIX THIS CODE PLEASE. This probably isnt working. This is untested (Markus said to write this down!)
-        
+        bm25_scores = self.bm25.get_scores(tokenized_query)
+
+        # Normalize scores
+        max_score = np.max(bm25_scores)
+        normalized_scores = bm25_scores / max_score if max_score > 0 else bm25_scores
+
+        # Get top k indices
+        num_results = min(top_k, len(normalized_scores))
+        top_indices = np.argsort(normalized_scores)[::-1][:num_results]
+
+        top_scores = normalized_scores[top_indices]
+        top_doc_ids = self.document_store['id'].iloc[top_indices].values
+
+        return top_scores, top_doc_ids
+
+    def search(self, query: str, top_k: int = 5, top_m_multiplier: int = 5, rrf_k: int = 60) -> list[dict]:
         """
-        
+        Search for documents similar to the query using a hybrid approach (Embeddings + BM25 if enabled).
+        Combines results using Reciprocal Rank Fusion (RRF).
+
+        Args:
+            query: The search query string.
+            top_k: The final number of top results to return.
+            top_m_multiplier: Multiplier for top_k to determine how many results to fetch
+                              initially from each search method (embeddings, BM25).
+            rrf_k: The ranking constant used in the RRF formula (default is 60).
+
+        Returns:
+            A list of dictionaries, each representing a ranked document chunk with its score
+            and metadata.
+        """
+        top_m = top_k * top_m_multiplier
+
+        # 1. Get results from embedding search
+        scores_emb, doc_ids_emb = self._search_embeddings(query, top_m)
+
+        # 2. Get results from BM25 search if enabled
         if self.use_bm25:
-            scores, doc_ids = self._search_bm25(query, top_k)
+            scores_bm25, doc_ids_bm25 = self._search_bm25(query, top_m)
+
+            # 3. Combine results using Reciprocal Rank Fusion (RRF)
+            rank_emb = {doc_id: i for i, doc_id in enumerate(doc_ids_emb)}
+            rank_bm25 = {doc_id: i for i, doc_id in enumerate(doc_ids_bm25)}
+
+            all_doc_ids = set(doc_ids_emb) | set(doc_ids_bm25)
+
+            rrf_scores = {}
+            for doc_id in all_doc_ids:
+                score = 0.0
+                if doc_id in rank_emb:
+                    # RRF formula: 1 / (k + rank)
+                    score += 1.0 / (rrf_k + rank_emb[doc_id])
+                if doc_id in rank_bm25:
+                    score += 1.0 / (rrf_k + rank_bm25[doc_id])
+                rrf_scores[doc_id] = score
+
+            # Sort doc IDs by RRF score in descending order
+            sorted_doc_ids = sorted(all_doc_ids, key=lambda doc_id: rrf_scores[doc_id], reverse=True)
+
+            # Select top_k results
+            final_doc_ids = sorted_doc_ids[:top_k]
+            final_scores = [rrf_scores[doc_id] for doc_id in final_doc_ids]
+
         else:
-            scores, doc_ids = self._search_embeddings(query, top_k)
-        
+            # If not using BM25, just use the embedding results
+            final_doc_ids = doc_ids_emb[:top_k]
+            final_scores = scores_emb[:top_k]
+
+        # 4. Format results
         results = []
-        for i, (score, chunk_id) in enumerate(zip(scores, chunk_ids)):
-            if chunk_id == -1:  # FAISS returns -1 if there are not enough results
+        for i, (score, doc_id) in enumerate(zip(final_scores, final_doc_ids)):
+            try:
+                # Get chunk information from the store
+                doc_row = self.document_store[self.document_store['id'] == doc_id].iloc[0]
+                res = {"rank": i + 1, "score": float(score)} # Ensure score is float
+                # Add all other columns from the chunk store row
+                res.update(doc_row.to_dict())
+                results.append(res)
+            except KeyError:
+                print(f"Warning: Chunk ID {doc_id} not found in chunk_store.")
                 continue
-                
-            # Get chunk information
-            chunk_row = self.chunk_store.loc[chunk_id]
-            res = {"rank": i + 1, "score": score}
-            res.update(chunk_row.to_dict())
-            results.append(res)
-        
+
         return results
     
     def setup_bm25(self, documents: pd.DataFrame):
