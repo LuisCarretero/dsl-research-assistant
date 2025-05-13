@@ -46,13 +46,13 @@ def load_metadata(
 
     return df, ref_df
 
-def predict_refs_from_abstract(ds: FAISSDocumentStore, abstract: str, max_n_refs: int = 10, sort: bool = True) -> List[str]:
-    chunks = ds.search(abstract, top_k=max_n_refs)
-    unique_ids = list(set([chunk['doc_id'] for chunk in chunks]))
-    
-    # Sort by score if requested
-    if sort:
-        score_map = {chunk['doc_id']: chunk['score'] for chunk in chunks}
-        unique_ids = sorted(unique_ids, key=lambda doc_id: score_map[doc_id], reverse=True)
-    
-    return unique_ids
+def predict_refs_from_abstract(
+    ds: FAISSDocumentStore, 
+    abstract: str, 
+    max_n_refs: int = 10,
+    search_kwargs: dict = {}
+) -> List[str]:
+    doc_dicts = ds.search(abstract, top_k=max_n_refs, return_scores=True, return_doc_metadata=False, **search_kwargs)
+
+    # Docs are sorted by rank by default
+    return [doc['id'] for doc in doc_dicts]

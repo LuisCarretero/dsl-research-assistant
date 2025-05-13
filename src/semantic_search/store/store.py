@@ -92,7 +92,7 @@ class FAISSDocumentStore:
         """
 
         if self.use_bm25:
-            self.setup_bm25(documents)
+            self._setup_bm25(documents)
 
         if 'all' in self.doc_store_columns:
             self.document_store = documents
@@ -402,9 +402,12 @@ class FAISSDocumentStore:
             top_m_multiplier: Multiplier for top_k to determine how many results to fetch
                               initially from each search method (embeddings, BM25).
             rrf_k: The ranking constant used in the RRF formula (default is 60).
+            retrieval_method: 'embedding', 'keyword', or 'hybrid'.
+            return_scores: Whether to include scores in the results.
+            return_doc_metadata: Whether to include document metadata from document_store.
 
         Returns:
-            A list of dictionaries, each representing a ranked document chunk with its score
+            A list of dictionaries, each representing a ranked document with its score
             and metadata.
         """
         if retrieval_method in ['keyword', 'hybrid'] and not self.use_bm25:
@@ -421,6 +424,7 @@ class FAISSDocumentStore:
             scores_bm25, doc_ids_bm25 = self._search_bm25(query, top_m)
 
             # Combine results using Reciprocal Rank Fusion (RRF)
+            # Create rank maps: {doc_id: rank (0-indexed)}
             rank_emb = {doc_id: i for i, doc_id in enumerate(doc_ids_emb)}
             rank_bm25 = {doc_id: i for i, doc_id in enumerate(doc_ids_bm25)}
 
@@ -461,7 +465,7 @@ class FAISSDocumentStore:
 
         return results
     
-    def setup_bm25(self, documents: pd.DataFrame):
+    def _setup_bm25(self, documents: pd.DataFrame):
         """
         Set up BM25 for keyword search.
         Tokenizes all documents in the chunk store and initializes the BM25 model.
