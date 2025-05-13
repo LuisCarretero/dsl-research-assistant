@@ -50,6 +50,11 @@ class LocalEmbeddingModel:
         Didnt manage to call tokenizer.prepare_for_model batched so doing weird back and forth
         conversion for now.
 
+        Returns:
+            tuple of:
+                - all_chunks_text: list of lists of strings, each list of strings is a chunk of the original text
+                - all_chunks_encoded: list of dicts, each dict is a batch of encoded chunks
+
         TODO: Allow for np arrays or other iterable inputs.
         """
         if isinstance(texts, str):
@@ -115,7 +120,15 @@ class LocalEmbeddingModel:
             return torch.sum(token_embeddings * input_mask_expanded, dim=1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
 
     def get_embeddings(self, encoded_inputs: BatchEncoding, progress_bar: bool = False) -> np.ndarray:
-        """Generate embeddings from pre-tokenized inputs."""
+        """Generate embeddings from pre-tokenized inputs.
+        
+        Args:
+            encoded_inputs: BatchEncoding object from tokenizer.prepare_for_model
+            progress_bar: Whether to show a progress bar
+
+        Returns:
+            np.ndarray of shape (n_texts, embedding_dim)
+        """
 
         embeddings = []
         for i in tqdm(range(0, len(encoded_inputs['input_ids']), self.batch_size), desc="Generating embeddings", disable=not progress_bar):
