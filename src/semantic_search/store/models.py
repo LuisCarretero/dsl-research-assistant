@@ -26,6 +26,7 @@ class LocalEmbeddingModel:
         self.batch_size = batch_size
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
+        self.embedding_dim = self.model.config.hidden_size
         
         if device is None:
             self.device = torch.device(
@@ -52,10 +53,13 @@ class LocalEmbeddingModel:
 
         Returns:
             tuple of:
-                - all_chunks_text: list of lists of strings, each list of strings is a chunk of the original text
+                - all_chunks_text: list of lists of strings, each string is a chunk of the original text, 
+                grouped into lists that constitute a single input text
+                Example: [ ['text1_chunk1', 'text1_chunk2'], ['text2_chunk1', 'text2_chunk2', 'text2_chunk3'] ]
                 - all_chunks_encoded: list of dicts, each dict is a batch of encoded chunks
 
         TODO: Allow for np arrays or other iterable inputs.
+        TODO: Make this more efficient!
         """
         if isinstance(texts, str):
             texts = [texts]
