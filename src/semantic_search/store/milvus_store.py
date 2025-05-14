@@ -4,7 +4,8 @@ import torch
 import numpy as np
 from pymilvus import MilvusClient
 import os
-
+from typing import Optional
+from collections import defaultdict
 
 from semantic_search.store.store import LocalEmbeddingModel
 
@@ -26,8 +27,8 @@ class MilvusDocumentStore:
         self.document_store = None
 
         # Data paths
-        self.doc_store_path: Path | None = None
-        self.milvus_db_path: Path | None = None
+        self.doc_store_path: Optional[str] = None
+        self.milvus_db_path: Optional[str] = None
 
         self._setup_paths()
 
@@ -121,7 +122,7 @@ class MilvusDocumentStore:
         return_scores: bool = True,
         return_doc_metadata: bool = False
     ) -> list[dict]:
-        """Search using dense embeddings."""
+        """Search using dense embeddings and return document-level results."""
         if self.client is None:
             raise ValueError("Store not loaded. Call load_store() first.")
             
@@ -130,24 +131,39 @@ class MilvusDocumentStore:
         q_embs = self.model.get_embeddings(q_enc)
         q_vec = q_embs.mean(axis=0).tolist()
         
-        # Search in Milvus
+        # Search in Milvus with a larger limit to get more chunks per document
         hits = self.client.search(
             collection_name=self.collection_name,
             data=[q_vec],
-            limit=top_k,
+            limit=top_k * 5,  # Get more chunks to ensure good document coverage
             output_fields=["text", "doc_id"]
         )
         
+        # Aggregate scores by document
+        doc_scores = defaultdict(list)
+        for hit in hits[0]:
+            score = hit["distance"]
+            doc_id = hit["entity"]["doc_id"]
+            doc_scores[doc_id].append(score)
+        
+        # Calculate document scores (using max score among chunks)
+        doc_rankings = []
+        for doc_id, scores in doc_scores.items():
+            doc_score = max(scores)  # Use max score among chunks
+            doc_rankings.append((doc_id, doc_score))
+        
+        # Sort documents by score
+        doc_rankings.sort(key=lambda x: x[1], reverse=True)
+        
         # Format results
         results = []
-        for i, (score, entity) in enumerate([(h["distance"], h["entity"]) for h in hits[0]]):
-            res = {'rank': i + 1, 'text': entity['text']}
+        for i, (doc_id, score) in enumerate(doc_rankings[:top_k]):
+            res = {'rank': i + 1, 'id': doc_id}
             if return_scores:
                 res['score'] = float(score)
                 
             # Add document metadata if enabled
             if return_doc_metadata and self.store_documents and self.document_store is not None:
-                doc_id = entity['doc_id']
                 doc_row = self.document_store[self.document_store['id'] == doc_id].iloc[0]
                 res.update(doc_row.to_dict())
                 
