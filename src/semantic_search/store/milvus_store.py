@@ -2,9 +2,9 @@ import pandas as pd
 from pathlib import Path
 import torch
 import numpy as np
-from pymilvus import MilvusClient
+from pymilvus import MilvusClient, DataType, Function, FunctionType
 import os
-from typing import Optional
+from typing import Optional, Literal
 from collections import defaultdict
 
 from semantic_search.store.store import LocalEmbeddingModel
@@ -68,9 +68,43 @@ class MilvusDocumentStore:
             else:
                 raise ValueError(f"Collection {self.collection_name} already exists. Set overwrite=True to overwrite.")
         
+        # Create schema with both dense and sparse vector fields
+        schema = MilvusClient.create_schema()
+        
+        # Add fields
+        schema.add_field(field_name="id", datatype=DataType.INT64, is_primary=True)
+        schema.add_field(field_name="dense", datatype=DataType.FLOAT_VECTOR, dim=self.model.embedding_dim)
+        schema.add_field(field_name="text", datatype=DataType.VARCHAR, max_length=65535, enable_analyzer=True)
+        schema.add_field(field_name="doc_id", datatype=DataType.VARCHAR, max_length=100)
+        schema.add_field(field_name="sparse", datatype=DataType.SPARSE_FLOAT_VECTOR)
+        
+        # Add BM25 function for text search
+        bm25_function = Function(
+            name="text_bm25_emb",
+            input_field_names=["text"],
+            output_field_names=["sparse"],
+            function_type=FunctionType.BM25
+        )
+        schema.add_function(bm25_function)
+
+        # Configure index
+        index_params = MilvusClient.prepare_index_params()
+        index_params.add_index(
+            field_name='sparse',
+            index_type='SPARSE_INVERTED_INDEX',
+            metric_type='IP',
+            params={
+                'inverted_index_algo': 'DAAT_MAXSCORE',
+                'bm25_k1': 1.2,
+                'bm25_b': 0.75
+            }
+        )
+        
+        # Create collection with schema
         self.client.create_collection(
             collection_name=self.collection_name,
-            dimension=self.model.embedding_dim
+            schema=schema,
+            index_params=index_params
         )
         
         # Store documents if enabled
@@ -100,7 +134,7 @@ class MilvusDocumentStore:
         data = [
             {
                 "id": chunk_id,
-                "vector": chunk_emb.tolist(),
+                "dense": chunk_emb.tolist(),
                 "text": chunk_text,
                 "doc_id": doc_id
             }
@@ -120,31 +154,56 @@ class MilvusDocumentStore:
         query: str, 
         top_k: int = 10,
         return_scores: bool = True,
-        return_doc_metadata: bool = False
+        return_doc_metadata: bool = False,
+        search_type: Literal["embedding", "keyword"] = "embedding"
     ) -> list[dict]:
-        """Search using dense embeddings and return document-level results."""
+        """Search using either dense embeddings or keyword search and return document-level results."""
         if self.client is None:
             raise ValueError("Store not loaded. Call load_store() first.")
             
-        # Encode query
-        _, q_enc = self.model.chunk_and_encode(query)
-        q_embs = self.model.get_embeddings(q_enc)
-        q_vec = q_embs.mean(axis=0).tolist()
-        
-        # Search in Milvus with a larger limit to get more chunks per document
-        hits = self.client.search(
-            collection_name=self.collection_name,
-            data=[q_vec],
-            limit=top_k * 5,  # Get more chunks to ensure good document coverage
-            output_fields=["text", "doc_id"]
-        )
-        
-        # Aggregate scores by document
-        doc_scores = defaultdict(list)
-        for hit in hits[0]:
-            score = hit["distance"]
-            doc_id = hit["entity"]["doc_id"]
-            doc_scores[doc_id].append(score)
+        if search_type == "embedding":
+            # Encode query
+            _, q_enc = self.model.chunk_and_encode(query)
+            q_embs = self.model.get_embeddings(q_enc)
+            q_vec = q_embs.mean(axis=0).tolist()
+            
+            # Search in Milvus with a larger limit to get more chunks per document
+            hits = self.client.search(
+                collection_name=self.collection_name,
+                data=[q_vec],
+                anns_field="dense",
+                limit=top_k * 5,  # Get more chunks to ensure good document coverage
+                output_fields=["text", "doc_id"]
+            )
+            
+            # Aggregate scores by document
+            doc_scores = defaultdict(list)
+            for hit in hits[0]:
+                score = hit["distance"]
+                doc_id = hit["entity"]["doc_id"]
+                doc_scores[doc_id].append(score)
+                
+        elif search_type == "keyword":
+            # Perform keyword search using BM25
+            search_params = {
+                'params': {'drop_ratio_search': 0.2},
+            }
+            
+            hits = self.client.search(
+                collection_name=self.collection_name,
+                data=[query],
+                anns_field="sparse",
+                limit=top_k * 5,
+                search_params=search_params,
+                output_fields=["text", "doc_id"]
+            )
+            
+            # Aggregate scores by document
+            doc_scores = defaultdict(list)
+            for hit in hits[0]:
+                score = hit["distance"]
+                doc_id = hit["entity"]["doc_id"]
+                doc_scores[doc_id].append(score)
         
         # Calculate document scores (using max score among chunks)
         doc_rankings = []

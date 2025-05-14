@@ -8,3 +8,5 @@ __pycache__/
 *.err
 benchmark_results/
 *.prof
+docker/
+*.sif
