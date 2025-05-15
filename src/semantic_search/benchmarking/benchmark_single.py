@@ -101,9 +101,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--store_name', type=str, required=True)
     parser.add_argument('--experiment_name', type=str, required=False)
-    parser.add_argument('--metadata_dirpath', type=str, default='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/raw-data/metadata3')
-    parser.add_argument('--store_dirpath', type=str, default='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/db')
-    parser.add_argument('--results_dirpath', type=str, default='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/benchmark_results')
+    parser.add_argument('--metadata_dirpath', type=str, default='/Users/luis/Desktop/ETH/Courses/SS25-DSL/raw-data/metadata3')
+    parser.add_argument('--store_dirpath', type=str, default='/Users/luis/Desktop/ETH/Courses/SS25-DSL/db')
+    parser.add_argument('--results_dirpath', type=str, default='/Users/luis/Desktop/ETH/Courses/SS25-DSL/benchmark_results')
     args = parser.parse_args()
 
     search_kwargs = {

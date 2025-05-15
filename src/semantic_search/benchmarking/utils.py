@@ -1,6 +1,8 @@
 from typing import List, Dict
 
 def score_predictions(gt_refs: List[str], pred_refs: List[str]) -> Dict[str, float]:
+    if len(gt_refs) == 0:
+        return {'prec': -1, 'rec': -1, 'f1': -1}
     assert len(gt_refs) > 0, "Ground truth references must not be empty"
     
     gt_set = set(map(lambda x: x.lower(), gt_refs))

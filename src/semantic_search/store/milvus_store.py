@@ -2,10 +2,11 @@ import pandas as pd
 from pathlib import Path
 import torch
 import numpy as np
-from pymilvus import MilvusClient, DataType, Function, FunctionType
 import os
 from typing import Optional, Literal
 from collections import defaultdict
+from pymilvus import MilvusClient, DataType, Function, FunctionType, WeightedRanker, AnnSearchRequest
+
 
 from semantic_search.store.store import LocalEmbeddingModel
 
@@ -16,7 +17,8 @@ class MilvusDocumentStore:
         model: LocalEmbeddingModel,
         db_dir: str,
         collection_name: str = "docs_chunks",
-        store_documents: bool = False
+        store_documents: bool = False,
+        milvus_uri: str = 'http://localhost:19530',  # TODO: <- Create lightweight options for embedded vs server. Instead make collection name an option
     ):
         self.model = model
         self.db_dir = db_dir
@@ -25,6 +27,7 @@ class MilvusDocumentStore:
         self._current_client_db_path = None  # <- Changed only when loading client.
         self.store_documents = store_documents
         self.document_store = None
+        self.milvus_uri = milvus_uri
 
         # Data paths
         self.doc_store_path: Optional[str] = None
@@ -39,7 +42,7 @@ class MilvusDocumentStore:
         
     def load_store(self) -> bool:
         """Load existing Milvus collection and document store if enabled."""
-        self._load_client()
+        self._connect_client()
         
         if self.store_documents:
             if os.path.exists(self.doc_store_path):
@@ -47,19 +50,25 @@ class MilvusDocumentStore:
             
         return self.client.has_collection(collection_name=self.collection_name)
 
-    def _load_client(self) -> None:
+    def _connect_client(self) -> None:
         """Load existing Milvus collection and document store if enabled. Doesn't reload if already loaded."""
         if self.milvus_db_path != self._current_client_db_path or self.client is None:
-            self.client = MilvusClient(self.milvus_db_path)
+            self.client = MilvusClient(self.milvus_uri)
             self._current_client_db_path = self.milvus_db_path
         return self.client
+    
+    def _disconnect_client(self) -> None:
+        """Disconnect from Milvus client."""
+        if self.client is not None:
+            self.client.close()
+            self.client = None
         
     def create_index_from_df(self, documents: pd.DataFrame, overwrite: bool = False) -> None:
         """Create new Milvus collection and index documents."""
         
         # Initialize client
         self._setup_paths()
-        self._load_client()
+        self._connect_client()
         
         # Create collection
         if self.client.has_collection(collection_name=self.collection_name):
@@ -92,11 +101,22 @@ class MilvusDocumentStore:
         index_params.add_index(
             field_name='sparse',
             index_type='SPARSE_INVERTED_INDEX',
-            metric_type='IP',
+            metric_type='BM25',
             params={
                 'inverted_index_algo': 'DAAT_MAXSCORE',
                 'bm25_k1': 1.2,
                 'bm25_b': 0.75
+            }
+        )
+        
+        # Add index for dense vector field
+        index_params.add_index(
+            field_name='dense',
+            index_type='HNSW',
+            metric_type='COSINE',
+            params={
+                'M': 8,
+                'efConstruction': 64
             }
         )
         
@@ -155,13 +175,13 @@ class MilvusDocumentStore:
         top_k: int = 10,
         return_scores: bool = True,
         return_doc_metadata: bool = False,
-        search_type: Literal["embedding", "keyword"] = "embedding"
+        search_type: Literal['embedding', 'keyword', 'hybrid'] = 'embedding'
     ) -> list[dict]:
         """Search using either dense embeddings or keyword search and return document-level results."""
         if self.client is None:
             raise ValueError("Store not loaded. Call load_store() first.")
             
-        if search_type == "embedding":
+        if search_type == 'embedding':
             # Encode query
             _, q_enc = self.model.chunk_and_encode(query)
             q_embs = self.model.get_embeddings(q_enc)
@@ -171,19 +191,19 @@ class MilvusDocumentStore:
             hits = self.client.search(
                 collection_name=self.collection_name,
                 data=[q_vec],
-                anns_field="dense",
+                anns_field='dense',
                 limit=top_k * 5,  # Get more chunks to ensure good document coverage
-                output_fields=["text", "doc_id"]
+                output_fields=['doc_id']
             )
             
             # Aggregate scores by document
             doc_scores = defaultdict(list)
             for hit in hits[0]:
-                score = hit["distance"]
-                doc_id = hit["entity"]["doc_id"]
+                score = hit['distance']
+                doc_id = hit['entity']['doc_id']
                 doc_scores[doc_id].append(score)
                 
-        elif search_type == "keyword":
+        elif search_type == 'keyword':
             # Perform keyword search using BM25
             search_params = {
                 'params': {'drop_ratio_search': 0.2},
@@ -192,18 +212,71 @@ class MilvusDocumentStore:
             hits = self.client.search(
                 collection_name=self.collection_name,
                 data=[query],
-                anns_field="sparse",
+                anns_field='sparse',
                 limit=top_k * 5,
                 search_params=search_params,
-                output_fields=["text", "doc_id"]
+                output_fields=['doc_id']
             )
             
             # Aggregate scores by document
             doc_scores = defaultdict(list)
             for hit in hits[0]:
-                score = hit["distance"]
-                doc_id = hit["entity"]["doc_id"]
+                score = hit['distance']
+                doc_id = hit['entity']['doc_id']
                 doc_scores[doc_id].append(score)
+        
+        elif search_type == 'hybrid':
+            # Encode query for dense search
+            _, q_enc = self.model.chunk_and_encode(query)
+            q_embs = self.model.get_embeddings(q_enc)
+            q_vec = q_embs.mean(axis=0).tolist()
+            
+            # Create AnnSearchRequest for dense vectors
+            dense_search_params = {
+                'data': [q_vec],
+                'anns_field': 'dense',
+                'param': {
+                    'metric_type': 'COSINE',
+                    'params': {'nprobe': 10}
+                },
+                'limit': top_k * 5,
+                # 'output_fields': ['doc_id']
+            }
+            dense_request = AnnSearchRequest(**dense_search_params)
+            
+            # Create AnnSearchRequest for sparse vectors (keyword search)
+            sparse_search_params = {
+                'data': [query],
+                'anns_field': 'sparse',
+                'param': {
+                    'metric_type': 'BM25',
+                    'params': {'drop_ratio_search': 0.2}
+                },
+                'limit': top_k * 5,
+                # 'output_fields': ['doc_id']
+            }
+            sparse_request = AnnSearchRequest(**sparse_search_params)
+            
+            # Define reranker with appropriate weights
+            ranker = WeightedRanker(0.7, 0.3)  # 0.7 weight for dense, 0.3 for sparse
+            
+            # Perform hybrid search combining dense and sparse vectors
+            hits = self.client.hybrid_search(
+                collection_name=self.collection_name,
+                reqs=[dense_request, sparse_request],
+                ranker=ranker,
+                limit=top_k * 5,
+                output_fields=['doc_id']
+            )
+            
+            # Aggregate scores by document
+            doc_scores = defaultdict(list)
+            for hit in hits[0]:
+                score = hit['distance']
+                doc_id = hit['entity']['doc_id']
+                doc_scores[doc_id].append(score)
+        else:
+            raise ValueError(f"Invalid search type: {search_type}")
         
         # Calculate document scores (using max score among chunks)
         doc_rankings = []

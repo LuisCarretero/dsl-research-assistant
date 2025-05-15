@@ -40,7 +40,7 @@ def create_store(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
-    basepath = ['/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant',
+    basepath = ['/Users/luis/Desktop/ETH/Courses/SS25-DSL',
                 '/Users/luis/Desktop/ETH/Courses/SS25-DSL'][1]
     parser.add_argument('--model_name', type=str, default='sentence-transformers/all-MiniLM-L6-v2')
     parser.add_argument('--metadata_dirpath', type=str, default=os.path.join(basepath, 'raw-data/metadata3'))
