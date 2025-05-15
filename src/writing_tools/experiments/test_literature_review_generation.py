@@ -132,7 +132,7 @@ def evaluate_literature_review_generator(model:_BaseLiteratureReviewGenerator, d
         query = paper["abstract"]
         reference_abstracts = paper["reference_abstracts"]
         truth = paper["related_work"]
-        prediction = model.predict(query, reference_abstracts, citation_ids=paper["reference_ids"], citation_order=paper["in_text_citation_order"])
+        prediction = model.predict(query, reference_abstracts, citation_ids=paper["reference_ids"])#, citation_order=paper["in_text_citation_order"])
 
         predictions.append(prediction)
 
@@ -155,6 +155,7 @@ def evaluate_literature_review_generator(model:_BaseLiteratureReviewGenerator, d
             scores[key].fmeasure / len(data)
         )
     return scores, predictions
+
 
 
 if __name__ == "__main__":
@@ -197,7 +198,8 @@ if __name__ == "__main__":
     #                                        device="cuda",
     #                                        max_new_tokens=np.inf)
     #inference_model.set_default_call_kwargs(max_tokens=np.inf)
-    rouge, predictions = evaluate_literature_review_generator(LitLLMLiteratureReviewGenerator(inference_model, method="sentence"), data[0:1])
+    #rouge, predictions = evaluate_literature_review_generator(LitLLMLiteratureReviewGenerator(inference_model, method="sentence"), data[0:1])
+    rouge, predictions = evaluate_literature_review_generator(LexRankLiteratureReviewGenerator(), data[0:1])
     #pprint.pprint(data[0]["reference_abstracts"])
     print(predictions[0])
     #print(data[0]["in_text_citation_order"])
