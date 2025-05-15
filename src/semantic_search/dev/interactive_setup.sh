@@ -10,7 +10,8 @@ echo "Loading python environment"
 echo "Changing to research assistant directory"
 cd $HOME/workspace/dsl/dsl-research-assistant/src
 
-# srun --ntasks=1 --cpus-per-task=4 --mem-per-cpu=8G --gpus=1 --time=4:00:00 --pty bash
+# srun --ntasks=1 --cpus-per-task=4 --mem-per-cpu=4G --gpus=1 --time=4:00:00 --pty bash
+# srun --ntasks=1 --cpus-per-task=4 --mem-per-cpu=4G --time=4:00:00 --pty bash
 # python -m semantic_search.store.create_store --store_name=hybrid-dev
 # python -m semantic_search.store.create_store --store_name=hybrid-dev2 --doc_store_columns=all
 # python -m semantic_search.benchmarking.benchmark_single --store_name=hybrid-dev3 --experiment_name=hybrid1
