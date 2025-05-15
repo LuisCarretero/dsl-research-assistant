@@ -1,6 +1,6 @@
 from transformers import AutoTokenizer, AutoModel
 import torch
-from typing import Union, Literal, Dict, Any
+from typing import Union, Literal, Dict, Any, List
 import numpy as np
 from tqdm import tqdm
 import sys
@@ -122,8 +122,17 @@ class LocalEmbeddingModel:
         else:
             input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
             return torch.sum(token_embeddings * input_mask_expanded, dim=1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+        
+    def _flatten_dict(self, dicts: List[dict]) -> dict:
+        tmp = {}
+        for single_text_encoded in dicts:
+            for k, v in single_text_encoded.items():
+                if k not in tmp:
+                    tmp[k] = []
+                tmp[k].append(v)
+        return {k: torch.cat(v) for k, v in tmp.items()}
 
-    def get_embeddings(self, encoded_inputs: BatchEncoding, progress_bar: bool = False) -> np.ndarray:
+    def get_embeddings(self, encoded_inputs: BatchEncoding | List[BatchEncoding], progress_bar: bool = False) -> np.ndarray:
         """Generate embeddings from pre-tokenized inputs.
         
         Args:
@@ -133,6 +142,15 @@ class LocalEmbeddingModel:
         Returns:
             np.ndarray of shape (n_texts, embedding_dim)
         """
+
+        if isinstance(encoded_inputs, list):
+            if isinstance(encoded_inputs[0], dict) or isinstance(encoded_inputs[0], BatchEncoding):
+                # List of batchencodings
+                encoded_inputs = self._flatten_dict(encoded_inputs)
+            else:
+                raise ValueError(f"Invalid encoded_inputs type: List of {type(encoded_inputs[0])}")
+        elif not (isinstance(encoded_inputs, dict) or isinstance(encoded_inputs, BatchEncoding)):
+            raise ValueError(f"Invalid encoded_inputs type: {type(encoded_inputs)}")
 
         embeddings = []
         for i in tqdm(range(0, len(encoded_inputs['input_ids']), self.batch_size), desc="Generating embeddings", disable=not progress_bar):

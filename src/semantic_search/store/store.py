@@ -100,24 +100,15 @@ class FAISSDocumentStore:
             self.document_store = documents[list(set(self.doc_store_columns + ['id']))]
 
         all_chunks_text, all_chunks_encoded = self.embedding_model.chunk_and_encode(documents['text'].tolist(), progress_bar=True)
-        
-        # Flatten encoded
-        tmp = {}
-        for single_text_encoded in all_chunks_encoded:
-            for k, v in single_text_encoded.items():
-                if k not in tmp:
-                    tmp[k] = []
-                tmp[k].append(v)
-        encoded_flattened = {k: torch.cat(v) for k, v in tmp.items()}
+        chunk_cnts = [len(chunk) for chunk in all_chunks_text]
 
         # Get embeddings for all chunks
-        print(f"Generating embeddings for {len(list(encoded_flattened.values())[0])} chunks...")
-        embeddings = self.embedding_model.get_embeddings(encoded_flattened, progress_bar=True)
+        print(f"Generating embeddings for {sum(chunk_cnts)} chunks...")
+        embeddings = self.embedding_model.get_embeddings(all_chunks_encoded, progress_bar=True)
         if self.store_raw_embeddings:
             self.embeddings = embeddings
         
         # Create chunk store DataFrame
-        chunk_cnts = [len(chunk) for chunk in all_chunks_text]
         chunk_store = {
             'chunk_id': list(range(sum(chunk_cnts))),  # FIXME: Change or simplify?
             'doc_id': np.repeat(documents['id'].tolist(), chunk_cnts),

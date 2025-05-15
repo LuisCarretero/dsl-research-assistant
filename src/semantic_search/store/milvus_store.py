@@ -17,28 +17,30 @@ class MilvusDocumentStore:
         model: LocalEmbeddingModel,
         db_dir: str,
         collection_name: str = "docs_chunks",
+        milvus_uri: str = 'http://localhost:19530',
         store_documents: bool = False,
-        milvus_uri: str = 'http://localhost:19530',  # TODO: <- Create lightweight options for embedded vs server. Instead make collection name an option
     ):
-        self.model = model
+        # Settings
         self.db_dir = db_dir
         self.collection_name = collection_name
-        self.client = None
-        self._current_client_db_path = None  # <- Changed only when loading client.
         self.store_documents = store_documents
-        self.document_store = None
         self.milvus_uri = milvus_uri
+
+        # Embedding model
+        self.model = model
+
+        # Client and metadata store
+        self.client = None
+        self.document_store = None
 
         # Data paths
         self.doc_store_path: Optional[str] = None
-        self.milvus_db_path: Optional[str] = None
 
         self._setup_paths()
 
     def _setup_paths(self) -> None:
         Path(self.db_dir).mkdir(parents=True, exist_ok=True)
         self.doc_store_path = str(Path(self.db_dir) / 'documents.parquet')
-        self.milvus_db_path = str(Path(self.db_dir) / 'milvus.db')
         
     def load_store(self) -> bool:
         """Load existing Milvus collection and document store if enabled."""
@@ -47,30 +49,34 @@ class MilvusDocumentStore:
         if self.store_documents:
             if os.path.exists(self.doc_store_path):
                 self.document_store = pd.read_parquet(self.doc_store_path)
+            else:
+                raise ValueError(f"Document store path {self.doc_store_path} does not exist.")
             
         return self.client.has_collection(collection_name=self.collection_name)
 
     def _connect_client(self) -> None:
-        """Load existing Milvus collection and document store if enabled. Doesn't reload if already loaded."""
-        if self.milvus_db_path != self._current_client_db_path or self.client is None:
-            self.client = MilvusClient(self.milvus_uri)
-            self._current_client_db_path = self.milvus_db_path
+        """Connect to Milvus client, with retry logic if the connection fails."""
+        if self.client is None:
+            try:
+                self.client = MilvusClient(self.milvus_uri)
+            except Exception as e:
+                print(f"Error connecting to Milvus server: {e}")
+                print(f"Make sure the Milvus server is running at {self.milvus_uri}")
+                raise
         return self.client
     
     def _disconnect_client(self) -> None:
         """Disconnect from Milvus client."""
         if self.client is not None:
-            self.client.close()
-            self.client = None
-        
-    def create_index_from_df(self, documents: pd.DataFrame, overwrite: bool = False) -> None:
-        """Create new Milvus collection and index documents."""
-        
-        # Initialize client
-        self._setup_paths()
-        self._connect_client()
-        
-        # Create collection
+            try:
+                self.client.close()
+            except Exception:
+                pass
+            finally:
+                self.client = None
+
+    def _create_collection(self, overwrite: bool = False) -> None:
+        """Create new Milvus collection."""
         if self.client.has_collection(collection_name=self.collection_name):
             if overwrite:
                 self.client.drop_collection(collection_name=self.collection_name)
@@ -127,6 +133,16 @@ class MilvusDocumentStore:
             index_params=index_params
         )
         
+    def create_index_from_df(self, documents: pd.DataFrame, overwrite: bool = False) -> None:
+        """Create new Milvus collection and index documents."""
+        
+        # Initialize client
+        self._setup_paths()
+        self._connect_client()
+        
+        # Create collection
+        self._create_collection(overwrite=overwrite)
+        
         # Store documents if enabled
         if self.store_documents:
             documents.to_parquet(self.doc_store_path)
@@ -136,19 +152,12 @@ class MilvusDocumentStore:
         all_chunks_text, all_chunks_encoded = self.model.chunk_and_encode(documents['text'].tolist(), progress_bar=True)
         
         # Flatten encoded
-        tmp = {}
-        for single_text_encoded in all_chunks_encoded:
-            for k, v in single_text_encoded.items():
-                if k not in tmp:
-                    tmp[k] = []
-                tmp[k].append(v)
-        encoded_flattened = {k: torch.cat(v) for k, v in tmp.items()}
         chunks_flattened = [item for sublist in all_chunks_text for item in sublist]
         chunk_cnts = [len(chunk) for chunk in all_chunks_text]
         
         # Get embeddings for all chunks
-        print(f"Generating embeddings for {len(list(encoded_flattened.values())[0])} chunks...")
-        embeddings = self.model.get_embeddings(encoded_flattened, progress_bar=True)
+        print(f"Generating embeddings for {sum(chunk_cnts)} chunks...")
+        embeddings = self.model.get_embeddings(all_chunks_encoded, progress_bar=True)
         
         # Prepare data for insertion
         data = [
@@ -169,6 +178,24 @@ class MilvusDocumentStore:
         
         print(f"Indexed {len(documents)} documents in Milvus")
     
+    def check_server_health(self) -> bool:
+        """Check if the Milvus server is healthy and reachable."""
+        try:
+            if self.client is None:
+                self._connect_client()
+            # Try a simple operation to check if server is responsive
+            _ = self.client.list_collections()
+            return True
+        except Exception as e:
+            print(f"Milvus server health check failed: {e}")
+            # Try to reconnect
+            self._disconnect_client()
+            try:
+                self._connect_client()
+                return True
+            except Exception:
+                return False
+    
     def search(
         self, 
         query: str, 
@@ -179,7 +206,11 @@ class MilvusDocumentStore:
     ) -> list[dict]:
         """Search using either dense embeddings or keyword search and return document-level results."""
         if self.client is None:
-            raise ValueError("Store not loaded. Call load_store() first.")
+            self._connect_client()
+            
+        # Check server health before executing search
+        if not self.check_server_health():
+            raise ConnectionError("Cannot search - Milvus server is unavailable. Please restart the server.")
             
         if search_type == 'embedding':
             # Encode query
@@ -302,3 +333,7 @@ class MilvusDocumentStore:
             results.append(res)
         
         return results
+
+    def __del__(self):
+        """Ensure client is disconnected when object is garbage collected."""
+        self._disconnect_client()
