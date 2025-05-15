@@ -3,4 +3,8 @@ data/
 raw-data/
 db/
 *cache*
+__pycache__/
+*.out
+*.err
+benchmark_results/
 notes/
