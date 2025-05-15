@@ -39,9 +39,12 @@ def create_store(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+
+    basepath = ['/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant',
+                '/Users/luis/Desktop/ETH/Courses/SS25-DSL'][1]
     parser.add_argument('--model_name', type=str, default='sentence-transformers/all-MiniLM-L6-v2')
-    parser.add_argument('--metadata_dirpath', type=str, default='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/raw-data/metadata3')
-    parser.add_argument('--store_dirpath', type=str, default='/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/db')
+    parser.add_argument('--metadata_dirpath', type=str, default=os.path.join(basepath, 'raw-data/metadata3'))
+    parser.add_argument('--store_dirpath', type=str, default=os.path.join(basepath, 'db'))
     parser.add_argument('--store_name', type=str, default='main')
     parser.add_argument('--index_metric', type=str, default=None)
     parser.add_argument('--max_refs', type=int, default=-1)
