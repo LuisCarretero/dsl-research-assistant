@@ -43,6 +43,7 @@ class MilvusDocumentStore:
     def _setup_paths(self) -> None:
         Path(self.db_dir).mkdir(parents=True, exist_ok=True)
         self.doc_store_path = str(Path(self.db_dir) / 'documents.parquet')
+        self.embeddings_path = str(Path(self.db_dir) / 'embeddings.npy')
         
     def load_store(self) -> bool:
         """Load existing Milvus collection and document store if enabled."""
@@ -159,6 +160,10 @@ class MilvusDocumentStore:
         # Get embeddings for all chunks
         print(f"Generating embeddings for {sum(chunk_cnts)} chunks...")
         embeddings = self.model.get_embeddings(all_chunks_encoded, progress_bar=True)
+
+        if self.store_raw_embeddings:
+            self.embeddings = embeddings
+            np.save(self.embeddings_path, embeddings)
         
         # Prepare data for insertion
         data = [
