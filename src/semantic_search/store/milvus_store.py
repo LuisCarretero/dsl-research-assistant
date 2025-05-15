@@ -5,7 +5,7 @@ import numpy as np
 import os
 from typing import Optional, Literal
 from collections import defaultdict
-from pymilvus import MilvusClient, DataType, Function, FunctionType, WeightedRanker, AnnSearchRequest
+from pymilvus import MilvusClient, DataType, Function, FunctionType, WeightedRanker, AnnSearchRequest, RRFRanker
 
 
 from semantic_search.store.store import LocalEmbeddingModel
@@ -19,11 +19,13 @@ class MilvusDocumentStore:
         collection_name: str = "docs_chunks",
         milvus_uri: str = 'http://localhost:19530',
         store_documents: bool = False,
+        store_raw_embeddings: bool = False,
     ):
         # Settings
         self.db_dir = db_dir
         self.collection_name = collection_name
         self.store_documents = store_documents
+        self.store_raw_embeddings = store_raw_embeddings
         self.milvus_uri = milvus_uri
 
         # Embedding model
@@ -88,9 +90,9 @@ class MilvusDocumentStore:
         
         # Add fields
         schema.add_field(field_name="id", datatype=DataType.INT64, is_primary=True)
+        schema.add_field(field_name="doc_id", datatype=DataType.VARCHAR, max_length=100)
         schema.add_field(field_name="dense", datatype=DataType.FLOAT_VECTOR, dim=self.model.embedding_dim)
         schema.add_field(field_name="text", datatype=DataType.VARCHAR, max_length=65535, enable_analyzer=True)
-        schema.add_field(field_name="doc_id", datatype=DataType.VARCHAR, max_length=100)
         schema.add_field(field_name="sparse", datatype=DataType.SPARSE_FLOAT_VECTOR)
         
         # Add BM25 function for text search
@@ -105,6 +107,16 @@ class MilvusDocumentStore:
         # Configure index
         index_params = MilvusClient.prepare_index_params()
         index_params.add_index(
+            field_name='dense',
+            metric_type='COSINE',
+            index_type='FLAT',
+            # index_type='HNSW',
+            # params={
+            #     'M': 8,
+            #     'efConstruction': 64
+            # }
+        )
+        index_params.add_index(
             field_name='sparse',
             index_type='SPARSE_INVERTED_INDEX',
             metric_type='BM25',
@@ -112,17 +124,6 @@ class MilvusDocumentStore:
                 'inverted_index_algo': 'DAAT_MAXSCORE',
                 'bm25_k1': 1.2,
                 'bm25_b': 0.75
-            }
-        )
-        
-        # Add index for dense vector field
-        index_params.add_index(
-            field_name='dense',
-            index_type='HNSW',
-            metric_type='COSINE',
-            params={
-                'M': 8,
-                'efConstruction': 64
             }
         )
         
@@ -202,40 +203,32 @@ class MilvusDocumentStore:
         top_k: int = 10,
         return_scores: bool = True,
         return_doc_metadata: bool = False,
-        search_type: Literal['embedding', 'keyword', 'hybrid'] = 'embedding'
+        search_type: Literal['embedding', 'keyword', 'hybrid'] = 'embedding',
+        hybrid_ranker: dict = {'type': 'weighted', 'params': {'dense': 0.7, 'sparse': 0.3}}
     ) -> list[dict]:
         """Search using either dense embeddings or keyword search and return document-level results."""
-        if self.client is None:
-            self._connect_client()
-            
-        # Check server health before executing search
+        doc_to_chunk_multiplier = 2
+        hybrid_multiplier = 2
+
         if not self.check_server_health():
             raise ConnectionError("Cannot search - Milvus server is unavailable. Please restart the server.")
-            
-        if search_type == 'embedding':
+        
+        if search_type in ['embedding', 'hybrid']:
             # Encode query
             _, q_enc = self.model.chunk_and_encode(query)
             q_embs = self.model.get_embeddings(q_enc)
-            q_vec = q_embs.mean(axis=0).tolist()
-            
-            # Search in Milvus with a larger limit to get more chunks per document
+            q_vec = q_embs.mean(axis=0).tolist()  # FIXME: Handle this differently?
+
+        if search_type == 'embedding':
             hits = self.client.search(
                 collection_name=self.collection_name,
                 data=[q_vec],
                 anns_field='dense',
-                limit=top_k * 5,  # Get more chunks to ensure good document coverage
+                limit=top_k * doc_to_chunk_multiplier,
                 output_fields=['doc_id']
             )
             
-            # Aggregate scores by document
-            doc_scores = defaultdict(list)
-            for hit in hits[0]:
-                score = hit['distance']
-                doc_id = hit['entity']['doc_id']
-                doc_scores[doc_id].append(score)
-                
         elif search_type == 'keyword':
-            # Perform keyword search using BM25
             search_params = {
                 'params': {'drop_ratio_search': 0.2},
             }
@@ -244,24 +237,12 @@ class MilvusDocumentStore:
                 collection_name=self.collection_name,
                 data=[query],
                 anns_field='sparse',
-                limit=top_k * 5,
+                limit=top_k * doc_to_chunk_multiplier,
                 search_params=search_params,
                 output_fields=['doc_id']
             )
-            
-            # Aggregate scores by document
-            doc_scores = defaultdict(list)
-            for hit in hits[0]:
-                score = hit['distance']
-                doc_id = hit['entity']['doc_id']
-                doc_scores[doc_id].append(score)
-        
+
         elif search_type == 'hybrid':
-            # Encode query for dense search
-            _, q_enc = self.model.chunk_and_encode(query)
-            q_embs = self.model.get_embeddings(q_enc)
-            q_vec = q_embs.mean(axis=0).tolist()
-            
             # Create AnnSearchRequest for dense vectors
             dense_search_params = {
                 'data': [q_vec],
@@ -270,7 +251,7 @@ class MilvusDocumentStore:
                     'metric_type': 'COSINE',
                     'params': {'nprobe': 10}
                 },
-                'limit': top_k * 5,
+                'limit': top_k * hybrid_multiplier * doc_to_chunk_multiplier,
                 # 'output_fields': ['doc_id']
             }
             dense_request = AnnSearchRequest(**dense_search_params)
@@ -283,31 +264,36 @@ class MilvusDocumentStore:
                     'metric_type': 'BM25',
                     'params': {'drop_ratio_search': 0.2}
                 },
-                'limit': top_k * 5,
+                'limit': top_k * hybrid_multiplier * doc_to_chunk_multiplier,
                 # 'output_fields': ['doc_id']
             }
             sparse_request = AnnSearchRequest(**sparse_search_params)
             
             # Define reranker with appropriate weights
-            ranker = WeightedRanker(0.7, 0.3)  # 0.7 weight for dense, 0.3 for sparse
+            if hybrid_ranker['type'] == 'weighted':
+                ranker = WeightedRanker(*hybrid_ranker.get('weights', [0.5, 0.5]))
+            elif hybrid_ranker['type'] == 'RFR':
+                ranker = RRFRanker(hybrid_ranker.get('k', 60))
+            else:
+                raise ValueError(f"Invalid hybrid ranker type: {hybrid_ranker['type']}")
             
             # Perform hybrid search combining dense and sparse vectors
             hits = self.client.hybrid_search(
                 collection_name=self.collection_name,
                 reqs=[dense_request, sparse_request],
                 ranker=ranker,
-                limit=top_k * 5,
+                limit=top_k * doc_to_chunk_multiplier,
                 output_fields=['doc_id']
             )
-            
-            # Aggregate scores by document
-            doc_scores = defaultdict(list)
-            for hit in hits[0]:
-                score = hit['distance']
-                doc_id = hit['entity']['doc_id']
-                doc_scores[doc_id].append(score)
         else:
             raise ValueError(f"Invalid search type: {search_type}")
+        
+        # Aggregate scores by document
+        doc_scores = defaultdict(list)
+        for hit in hits[0]:
+            score = hit['distance']
+            doc_id = hit['entity']['doc_id']
+            doc_scores[doc_id].append(score)
         
         # Calculate document scores (using max score among chunks)
         doc_rankings = []
