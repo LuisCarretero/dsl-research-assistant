@@ -146,15 +146,15 @@ if __name__ == "__main__":
         'search_type': 'hybrid'
     }
 
-    # compute_prec_recall_metrics(
-    #     metadata_dirpath=args.metadata_dirpath,
-    #     store_name=args.store_name,
-    #     store_dirpath=args.store_dirpath,
-    #     results_dirpath=args.results_dirpath,
-    #     experiment_name=args.experiment_name,
-    #     search_kwargs=search_kwargs,
-    #     store_type='milvus'
-    # )
+    compute_prec_recall_metrics(
+        metadata_dirpath=args.metadata_dirpath,
+        store_name=args.store_name,
+        store_dirpath=args.store_dirpath,
+        results_dirpath=args.results_dirpath,
+        experiment_name=args.experiment_name,
+        search_kwargs=search_kwargs,
+        store_type='milvus'
+    )
     extract_prec_recall_curves(
         results_dirpath=args.results_dirpath,
         experiment_name=args.experiment_name,

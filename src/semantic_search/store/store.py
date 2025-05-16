@@ -144,8 +144,8 @@ class FAISSDocumentStore:
         if write_to_disk:
             self.save_store()
 
-    def get_metadata(self) -> Dict[str, Any]:
-        """Get metadata from the store"""
+    def save_metadata(self) -> None:
+        """Save metadata to disk"""
         metadata = {'store': {
             'index_metric': self.index_metric, 
             'store_raw_embeddings': self.store_raw_embeddings,
@@ -155,6 +155,20 @@ class FAISSDocumentStore:
         }}
         if self.embedding_model is not None:
             metadata['embedding_model'] = self.embedding_model.get_metadata()
+        with open(self.metadata_path, 'w') as f:
+            json.dump(metadata, f, indent=4)
+    
+    def load_metadata(self) -> dict:
+        """Load metadata from disk"""
+        with open(self.metadata_path, 'r') as f:
+            metadata = json.load(f)
+        store_metadata = metadata.get('store', {})
+        self.index_metric = store_metadata.get('index_metric')
+        self.store_raw_embeddings = store_metadata.get('store_raw_embeddings')
+        self.chunk_store_columns = store_metadata.get('chunk_store_columns')
+        self.doc_store_columns = store_metadata.get('doc_store_columns')
+        self.use_bm25 = store_metadata.get('use_bm25')
+
         return metadata
     
     def save_store(self) -> None:
@@ -162,8 +176,7 @@ class FAISSDocumentStore:
         os.makedirs(self.db_dir, exist_ok=False)
 
         # Save metadata
-        with open(self.metadata_path, 'w') as f:
-            json.dump(self.get_metadata(), f, indent=4)
+        self.save_metadata()
         
         # Save BM25 model
         if self.use_bm25:
@@ -182,15 +195,7 @@ class FAISSDocumentStore:
     def load_store(self) -> bool:
         """Load FAISS index and document store from disk"""
         if os.path.exists(self.metadata_path):
-            with open(self.metadata_path, 'r') as f:
-                metadata = json.load(f)
-
-            # Settings
-            self.index_metric = metadata['store']['index_metric']
-            self.store_raw_embeddings = metadata['store']['store_raw_embeddings']
-            self.chunk_store_columns = metadata['store']['chunk_store_columns']
-            self.doc_store_columns = metadata['store']['doc_store_columns']
-            self.use_bm25 = metadata['store']['use_bm25']
+            self.load_metadata()
 
             # Initialize embedding model
             if 'embedding_model' in metadata:

@@ -3,7 +3,8 @@ from pathlib import Path
 import torch
 import numpy as np
 import os
-from typing import Optional, Literal
+import json
+from typing import Optional, Literal, Dict, Any
 from collections import defaultdict
 from pymilvus import MilvusClient, DataType, Function, FunctionType, WeightedRanker, AnnSearchRequest, RRFRanker
 
@@ -44,18 +45,55 @@ class MilvusDocumentStore:
         Path(self.db_dir).mkdir(parents=True, exist_ok=True)
         self.doc_store_path = str(Path(self.db_dir) / 'documents.parquet')
         self.embeddings_path = str(Path(self.db_dir) / 'embeddings.npy')
+        self.metadata_path = str(Path(self.db_dir) / 'metadata.json')
         
+    def save_metadata(self) -> None:
+        """Save metadata to disk"""
+        metadata = {'store': {
+            'collection_name': self.collection_name,
+            'milvus_uri': self.milvus_uri,
+            'store_documents': self.store_documents,
+            'store_raw_embeddings': self.store_raw_embeddings,
+        }}
+        if self.model is not None:
+            metadata['embedding_model'] = self.model.get_metadata()
+        with open(self.metadata_path, 'w') as f:
+            json.dump(metadata, f, indent=4)
+    
+    def load_metadata(self) -> dict:
+        """Load metadata from disk"""
+        with open(self.metadata_path, 'r') as f:
+            metadata = json.load(f)
+
+        store_metadata = metadata.get('store', {})
+        self.collection_name = store_metadata.get('collection_name')
+        self.milvus_uri = store_metadata.get('milvus_uri')
+        self.store_documents = store_metadata.get('store_documents')
+        self.store_raw_embeddings = store_metadata.get('store_raw_embeddings')
+        
+        if 'embedding_model' in metadata:
+            self.model = LocalEmbeddingModel(**metadata['embedding_model'])
+        
+        return metadata
+    
     def load_store(self) -> bool:
         """Load existing Milvus collection and document store if enabled."""
         self._connect_client()
         
-        if self.store_documents:
-            if os.path.exists(self.doc_store_path):
-                self.document_store = pd.read_parquet(self.doc_store_path)
-            else:
-                raise ValueError(f"Document store path {self.doc_store_path} does not exist.")
+        # Load metadata
+        if os.path.exists(self.metadata_path):
+            metadata = self.load_metadata()
+            store_metadata = metadata.get('store', {})
             
-        return self.client.has_collection(collection_name=self.collection_name)
+            
+        
+            if self.store_documents:
+                if os.path.exists(self.doc_store_path):
+                    self.document_store = pd.read_parquet(self.doc_store_path)
+                else:
+                    raise ValueError(f"Document store path {self.doc_store_path} does not exist.")
+                
+            return self.client.has_collection(collection_name=self.collection_name)
 
     def _connect_client(self) -> None:
         """Connect to Milvus client, with retry logic if the connection fails."""
@@ -188,6 +226,9 @@ class MilvusDocumentStore:
             print(f"Inserting final batch of {len(data)} chunks into Milvus...")
             self.client.insert(collection_name=self.collection_name, data=data)
 
+        # Save metadata
+        self.save_metadata()
+            
         print(f"Indexed {len(documents)} documents in Milvus")
     
     def check_server_health(self) -> bool:
