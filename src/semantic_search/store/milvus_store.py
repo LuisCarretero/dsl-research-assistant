@@ -166,22 +166,28 @@ class MilvusDocumentStore:
             np.save(self.embeddings_path, embeddings)
         
         # Prepare data for insertion
-        data = [
-            {
+        data = []
+        for chunk_id, (chunk_text, chunk_emb, doc_id) in enumerate(zip(
+            chunks_flattened, embeddings, np.repeat(documents['id'].values, chunk_cnts).tolist()
+        )):
+            data.append({
                 "id": chunk_id,
                 "dense": chunk_emb.tolist(),
                 "text": chunk_text,
                 "doc_id": doc_id
-            }
-            for chunk_id, (chunk_text, chunk_emb, doc_id) in enumerate(zip(
-                chunks_flattened, embeddings, np.repeat(documents['id'].values, chunk_cnts).tolist()
-            ))
-        ]
+            })
+            
+            # Insert in chunks of 4000 records
+            if len(data) >= 4000:
+                print(f"Inserting batch of {len(data)} chunks into Milvus...")
+                self.client.insert(collection_name=self.collection_name, data=data)
+                data = []
         
-        # Insert into Milvus
-        print(f"Inserting {len(data)} chunks into Milvus...")
-        self.client.insert(collection_name=self.collection_name, data=data)
-        
+        # Insert any remaining data
+        if data:
+            print(f"Inserting final batch of {len(data)} chunks into Milvus...")
+            self.client.insert(collection_name=self.collection_name, data=data)
+
         print(f"Indexed {len(documents)} documents in Milvus")
     
     def check_server_health(self) -> bool:
@@ -209,7 +215,7 @@ class MilvusDocumentStore:
         return_scores: bool = True,
         return_doc_metadata: bool = False,
         search_type: Literal['embedding', 'keyword', 'hybrid'] = 'embedding',
-        hybrid_ranker: dict = {'type': 'weighted', 'params': {'dense': 0.7, 'sparse': 0.3}}
+        hybrid_ranker: dict = {'type': 'weighted', 'weights': [0.7, 0.3]}
     ) -> list[dict]:
         """Search using either dense embeddings or keyword search and return document-level results."""
         doc_to_chunk_multiplier = 2
