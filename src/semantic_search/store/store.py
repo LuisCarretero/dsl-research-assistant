@@ -3,7 +3,6 @@ import faiss
 import numpy as np
 import pandas as pd
 from pathlib import Path
-import torch
 from tqdm import tqdm
 from typing import Literal, Dict, Any, List, Tuple
 import json
