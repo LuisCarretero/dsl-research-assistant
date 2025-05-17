@@ -2,7 +2,7 @@ import os
 import argparse
 from typing import Literal, List
 
-from semantic_search.store.store import FAISSDocumentStore
+from semantic_search.store.faiss_store import FAISSDocumentStore
 from semantic_search.store.models import create_embedding_model
 from semantic_search.utils import load_metadata
 

@@ -8,7 +8,7 @@ from collections import defaultdict
 from pymilvus import MilvusClient, DataType, Function, FunctionType, WeightedRanker, AnnSearchRequest, RRFRanker
 
 
-from semantic_search.store.store import LocalEmbeddingModel
+from semantic_search.store.faiss_store import LocalEmbeddingModel
 
 
 class MilvusDocumentStore:
@@ -101,13 +101,16 @@ class MilvusDocumentStore:
         else:
             assert self.db_dir is not None, "db_dir must be provided if not initialized"
 
-    def load_store(self, db_superdir: Optional[str] = None, store_name: Optional[str] = None) -> bool:
+    def load_store(self, db_superdir: Optional[str] = None, store_name: Optional[str] = None, allow_fail: bool = False) -> bool:
         """Load existing Milvus collection and document store if enabled."""
         self._update_name_and_dir(db_superdir, store_name)
 
         # Load metadata
         if not os.path.exists(self.metadata_path):
-            raise ValueError(f"Metadata file {self.metadata_path} does not exist.")
+            if allow_fail:
+                return False
+            else:
+                raise ValueError(f"Metadata file {self.metadata_path} does not exist.")
         metadata = self._load_metadata()
 
         # Initialize embedding model
@@ -131,6 +134,7 @@ class MilvusDocumentStore:
             self.embeddings = np.load(self.embeddings_path)
 
         print(f"Loaded store from {self.db_dir}")
+        return True
 
     def save_store(self, db_superdir: Optional[str] = None, store_name: Optional[str] = None) -> None:
         """Save store to disk"""

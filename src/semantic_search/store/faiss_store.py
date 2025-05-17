@@ -227,13 +227,16 @@ class FAISSDocumentStore:
             if not os.path.exists(self.bm25_path):
                 raise ValueError(f"BM25 path {self.bm25_path} does not exist.")
 
-    def load_store(self, db_superdir: Optional[str] = None, store_name: Optional[str] = None) -> bool:
+    def load_store(self, db_superdir: Optional[str] = None, store_name: Optional[str] = None, allow_fail: bool = False) -> bool:
         """Load FAISS index and document store from disk"""
         self._update_name_and_dir(db_superdir, store_name)
 
         # Load metadata
         if not os.path.exists(self.metadata_path):
-            raise ValueError(f"Metadata file {self.metadata_path} does not exist.")
+            if allow_fail:
+                return False
+            else:
+                raise ValueError(f"Metadata file {self.metadata_path} does not exist.")
         metadata = self._load_metadata()
 
         # Initialize embedding model

@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Tuple, List
 
 from semantic_search.data_retrieval.utils import parse_list_string
-from semantic_search.store.store import FAISSDocumentStore
+from semantic_search.store.faiss_store import FAISSDocumentStore
 
 
 def get_good_papers_mask(df: pd.DataFrame) -> np.ndarray:

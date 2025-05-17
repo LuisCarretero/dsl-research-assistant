@@ -5,6 +5,10 @@ import numpy as np
 from tqdm import tqdm
 import sys
 from transformers.tokenization_utils_base import BatchEncoding
+import os
+
+
+os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 
 
 class LocalEmbeddingModel:
