@@ -22,7 +22,7 @@ def create_store(
     model = create_embedding_model(model_name)
     store = FAISSDocumentStore(
         model, 
-        db_dir=os.path.join(store_dirpath, (store_name or model_name.replace("/", "_"))),
+        db_superdir=os.path.join(store_dirpath, (store_name or model_name.replace("/", "_"))),
         index_metric=index_metric,
         store_raw_embeddings=store_raw_embeddings,
         chunk_store_columns=chunk_store_columns,

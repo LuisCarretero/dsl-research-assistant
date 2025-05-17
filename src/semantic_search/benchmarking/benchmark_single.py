@@ -46,13 +46,13 @@ def compute_prec_recall_metrics(
     # Load document store
     print('Loading document store...')
     if store_type == 'faiss':
-        ds = FAISSDocumentStore(db_dir=os.path.join(store_dirpath, store_name))
+        ds = FAISSDocumentStore(db_superdir=os.path.join(store_dirpath, store_name))
     elif store_type == 'milvus':
         ds = MilvusDocumentStore(
-            db_dir=os.path.join(store_dirpath, store_name),
+            db_superdir=os.path.join(store_dirpath, store_name),
             model=LocalEmbeddingModel()
         )
-        assert ds.check_server_health()
+        assert ds._check_index_available()
     assert ds.load_store() # Make sure store has been initialized
 
     try:

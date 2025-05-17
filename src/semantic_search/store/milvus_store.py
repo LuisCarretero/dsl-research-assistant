@@ -1,6 +1,5 @@
 import pandas as pd
 from pathlib import Path
-import torch
 import numpy as np
 import os
 import json
@@ -15,94 +14,143 @@ from semantic_search.store.store import LocalEmbeddingModel
 class MilvusDocumentStore:
     def __init__(
         self,
-        model: LocalEmbeddingModel,
-        db_dir: str,
-        collection_name: str = "docs_chunks",
+        embedding_model: Optional[LocalEmbeddingModel] = None,
+        db_superdir: Optional[str] = None,
+        store_name: str = 'main',
         milvus_uri: str = 'http://localhost:19530',
         store_documents: bool = False,
         store_raw_embeddings: bool = False,
     ):
         # Settings
-        self.db_dir = db_dir
-        self.collection_name = collection_name
+        self.db_dir = os.path.join(db_superdir, store_name)
+        self.store_name = store_name
         self.store_documents = store_documents
         self.store_raw_embeddings = store_raw_embeddings
         self.milvus_uri = milvus_uri
 
         # Embedding model
-        self.model = model
+        self.embedding_model = embedding_model
 
         # Client and metadata store
         self.client = None
         self.document_store = None
+        self.embeddings = None
 
         # Data paths
-        self.doc_store_path: Optional[str] = None
-
         self._setup_paths()
 
     def _setup_paths(self) -> None:
-        Path(self.db_dir).mkdir(parents=True, exist_ok=True)
-        self.doc_store_path = str(Path(self.db_dir) / 'documents.parquet')
-        self.embeddings_path = str(Path(self.db_dir) / 'embeddings.npy')
-        self.metadata_path = str(Path(self.db_dir) / 'metadata.json')
+        if self.db_dir is not None:
+            Path(self.db_dir).mkdir(parents=True, exist_ok=True)
+            self.metadata_path = str(Path(self.db_dir) / 'metadata.json')
+            self.doc_store_path = str(Path(self.db_dir) / 'documents.parquet')
+            self.embeddings_path = str(Path(self.db_dir) / 'embeddings.npy')
+        else:
+            self.metadata_path = None
+            self.doc_store_path = None
+            self.embeddings_path = None
         
-    def save_metadata(self) -> None:
+    def _save_metadata(self) -> None:
         """Save metadata to disk"""
         metadata = {'store': {
-            'collection_name': self.collection_name,
+            'type': 'milvus',
+            'db_dir': self.db_dir,
+            'store_name': self.store_name,
             'milvus_uri': self.milvus_uri,
             'store_documents': self.store_documents,
             'store_raw_embeddings': self.store_raw_embeddings,
         }}
-        if self.model is not None:
-            metadata['embedding_model'] = self.model.get_metadata()
+        if self.embedding_model is not None:
+            metadata['embedding_model'] = self.embedding_model.get_metadata()
         with open(self.metadata_path, 'w') as f:
             json.dump(metadata, f, indent=4)
     
-    def load_metadata(self) -> dict:
+    def _load_metadata(self) -> dict:
         """Load metadata from disk"""
         with open(self.metadata_path, 'r') as f:
             metadata = json.load(f)
 
         store_metadata = metadata.get('store', {})
-        self.collection_name = store_metadata.get('collection_name')
+        assert store_metadata.get('type') == 'milvus', "Metadata file contains invalid store type"
+        self.db_dir = store_metadata.get('db_dir')
+        self.store_name = store_metadata.get('store_name')
         self.milvus_uri = store_metadata.get('milvus_uri')
         self.store_documents = store_metadata.get('store_documents')
         self.store_raw_embeddings = store_metadata.get('store_raw_embeddings')
         
-        if 'embedding_model' in metadata:
-            self.model = LocalEmbeddingModel(**metadata['embedding_model'])
-        
         return metadata
     
-    def load_store(self) -> bool:
+    def _verify_db_dir(self) -> None:
+        """Verify that the additional data files exist in the database directory"""
+        # No requires files.
+        
+        # Optional files
+        if self.store_documents:
+            if not os.path.exists(self.doc_store_path):
+                raise ValueError(f"Document store path {self.doc_store_path} does not exist.")
+        if self.store_raw_embeddings:
+            if not os.path.exists(self.embeddings_path):
+                raise ValueError(f"Embeddings path {self.embeddings_path} does not exist.")
+    
+    def _update_name_and_dir(self, db_superdir: Optional[str] = None, store_name: Optional[str] = None) -> None:
+        if store_name is not None:
+            self.store_name = store_name
+        if db_superdir is not None:
+            self.db_dir = os.path.join(db_superdir, self.store_name)
+            self._setup_paths()
+        else:
+            assert self.db_dir is not None, "db_dir must be provided if not initialized"
+
+    def load_store(self, db_superdir: Optional[str] = None, store_name: Optional[str] = None) -> bool:
         """Load existing Milvus collection and document store if enabled."""
-        self._connect_client()
-        
+        self._update_name_and_dir(db_superdir, store_name)
+
         # Load metadata
-        if os.path.exists(self.metadata_path):
-            metadata = self.load_metadata()
-            store_metadata = metadata.get('store', {})
-            
-            
+        if not os.path.exists(self.metadata_path):
+            raise ValueError(f"Metadata file {self.metadata_path} does not exist.")
+        metadata = self._load_metadata()
+
+        # Initialize embedding model
+        if 'embedding_model' in metadata:
+            self.embedding_model = LocalEmbeddingModel(**metadata['embedding_model'])
+        else:
+            self.embedding_model = None
+
+        # Connect to client and load index
+        self._connect_client()
+        if not self._check_index_available():
+            raise ConnectionError("Cannot load store - Milvus collection is unavailable. " + \
+                                  "Please restart the server and check that collection is available.")
         
-            if self.store_documents:
-                if os.path.exists(self.doc_store_path):
-                    self.document_store = pd.read_parquet(self.doc_store_path)
-                else:
-                    raise ValueError(f"Document store path {self.doc_store_path} does not exist.")
-                
-            return self.client.has_collection(collection_name=self.collection_name)
+
+        # Load additional data
+        self._verify_db_dir()
+        if self.store_documents:
+            self.document_store = pd.read_parquet(self.doc_store_path)
+        if self.store_raw_embeddings:
+            self.embeddings = np.load(self.embeddings_path)
+
+        print(f"Loaded store from {self.db_dir}")
+
+    def save_store(self, db_superdir: Optional[str] = None, store_name: Optional[str] = None) -> None:
+        """Save store to disk"""
+        self._update_name_and_dir(db_superdir, store_name)
+
+        self._save_metadata()
+        if self.store_documents:
+            self.document_store.to_parquet(self.doc_store_path)
+        if self.store_raw_embeddings:
+            np.save(self.embeddings_path, self.embeddings)
+
 
     def _connect_client(self) -> None:
         """Connect to Milvus client, with retry logic if the connection fails."""
-        if self.client is None:
+        if self.client is None or not self._check_index_available():
             try:
                 self.client = MilvusClient(self.milvus_uri)
             except Exception as e:
-                print(f"Error connecting to Milvus server: {e}")
-                print(f"Make sure the Milvus server is running at {self.milvus_uri}")
+                print(f'Error connecting to Milvus server: {e} \n' + \
+                      f'Make sure the Milvus server is running at {self.milvus_uri}')
                 raise
         return self.client
     
@@ -116,21 +164,44 @@ class MilvusDocumentStore:
             finally:
                 self.client = None
 
+    def _check_index_available(self) -> bool:
+        """Check if the Milvus server is healthy and reachable. 
+        Try a simple operation to check if server is responsive"""
+
+        if self.client is None: return False
+
+        try:
+            if self.store_name in self.client.list_collections():
+                return True
+            else:
+                return False
+        except Exception as e:
+            print(f"Milvus server health check failed: {e}")
+            return False
+        
+    def _drop_collection(self) -> None:
+        """Drop existing Milvus collection."""
+        if self.client.has_collection(collection_name=self.store_name):
+            self.client.drop_collection(collection_name=self.store_name)
+            print(f"Dropped collection {self.store_name}")
+        else:
+            print(f"Collection {self.store_name} does not exist.")
+
     def _create_collection(self, overwrite: bool = False) -> None:
         """Create new Milvus collection."""
-        if self.client.has_collection(collection_name=self.collection_name):
+        if self.client.has_collection(collection_name=self.store_name):
             if overwrite:
-                self.client.drop_collection(collection_name=self.collection_name)
+                self._drop_collection()
             else:
-                raise ValueError(f"Collection {self.collection_name} already exists. Set overwrite=True to overwrite.")
-        
+                raise ValueError(f"Collection {self.store_name} already exists. Set overwrite=True to overwrite.")
+
         # Create schema with both dense and sparse vector fields
         schema = MilvusClient.create_schema()
         
         # Add fields
         schema.add_field(field_name="id", datatype=DataType.INT64, is_primary=True)
         schema.add_field(field_name="doc_id", datatype=DataType.VARCHAR, max_length=100)
-        schema.add_field(field_name="dense", datatype=DataType.FLOAT_VECTOR, dim=self.model.embedding_dim)
+        schema.add_field(field_name="dense", datatype=DataType.FLOAT_VECTOR, dim=self.embedding_model.embedding_dim)
         schema.add_field(field_name="text", datatype=DataType.VARCHAR, max_length=65535, enable_analyzer=True)
         schema.add_field(field_name="sparse", datatype=DataType.SPARSE_FLOAT_VECTOR)
         
@@ -168,16 +239,23 @@ class MilvusDocumentStore:
         
         # Create collection with schema
         self.client.create_collection(
-            collection_name=self.collection_name,
+            collection_name=self.store_name,
             schema=schema,
             index_params=index_params
         )
+
+    def _check_store_exists(self) -> bool:
+        """Check if the store exists using metadata file in directory."""
+        return os.path.exists(self.metadata_path)
         
-    def create_index_from_df(self, documents: pd.DataFrame, overwrite: bool = False) -> None:
+    def create_index_from_df(self, documents: pd.DataFrame, db_superdir: Optional[str] = None, store_name: Optional[str] = None, overwrite: bool = False) -> None:
         """Create new Milvus collection and index documents."""
-        
+        self._update_name_and_dir(db_superdir, store_name)
+
+        if not overwrite and self._check_store_exists():
+            raise ValueError(f"Store {self.store_name} already exists. Set overwrite=True to overwrite.")
+
         # Initialize client
-        self._setup_paths()
         self._connect_client()
         
         # Create collection
@@ -189,7 +267,7 @@ class MilvusDocumentStore:
             self.document_store = documents
         
         # Chunk and encode all documents at once
-        all_chunks_text, all_chunks_encoded = self.model.chunk_and_encode(documents['text'].tolist(), progress_bar=True)
+        all_chunks_text, all_chunks_encoded = self.embedding_model.chunk_and_encode(documents['text'].tolist(), progress_bar=True)
         
         # Flatten encoded
         chunks_flattened = [item for sublist in all_chunks_text for item in sublist]
@@ -197,7 +275,7 @@ class MilvusDocumentStore:
         
         # Get embeddings for all chunks
         print(f"Generating embeddings for {sum(chunk_cnts)} chunks...")
-        embeddings = self.model.get_embeddings(all_chunks_encoded, progress_bar=True)
+        embeddings = self.embedding_model.get_embeddings(all_chunks_encoded, progress_bar=True)
 
         if self.store_raw_embeddings:
             self.embeddings = embeddings
@@ -218,36 +296,18 @@ class MilvusDocumentStore:
             # Insert in chunks of 4000 records
             if len(data) >= 4000:
                 print(f"Inserting batch of {len(data)} chunks into Milvus...")
-                self.client.insert(collection_name=self.collection_name, data=data)
+                self.client.insert(collection_name=self.store_name, data=data)
                 data = []
         
         # Insert any remaining data
         if data:
             print(f"Inserting final batch of {len(data)} chunks into Milvus...")
-            self.client.insert(collection_name=self.collection_name, data=data)
+            self.client.insert(collection_name=self.store_name, data=data)
 
-        # Save metadata
-        self.save_metadata()
+        # Save store
+        self.save_store()
             
         print(f"Indexed {len(documents)} documents in Milvus")
-    
-    def check_server_health(self) -> bool:
-        """Check if the Milvus server is healthy and reachable."""
-        try:
-            if self.client is None:
-                self._connect_client()
-            # Try a simple operation to check if server is responsive
-            _ = self.client.list_collections()
-            return True
-        except Exception as e:
-            print(f"Milvus server health check failed: {e}")
-            # Try to reconnect
-            self._disconnect_client()
-            try:
-                self._connect_client()
-                return True
-            except Exception:
-                return False
     
     def search(
         self, 
@@ -255,38 +315,39 @@ class MilvusDocumentStore:
         top_k: int = 10,
         return_scores: bool = True,
         return_doc_metadata: bool = False,
-        search_type: Literal['embedding', 'keyword', 'hybrid'] = 'embedding',
+        retrieval_method: Literal['embedding', 'keyword', 'hybrid'] = 'embedding',
         hybrid_ranker: dict = {'type': 'weighted', 'weights': [0.7, 0.3]}
     ) -> list[dict]:
         """Search using either dense embeddings or keyword search and return document-level results."""
         doc_to_chunk_multiplier = 2
         hybrid_multiplier = 2
 
-        if not self.check_server_health():
-            raise ConnectionError("Cannot search - Milvus server is unavailable. Please restart the server.")
+        if not self._check_index_available():
+            raise ConnectionError("Cannot search - Milvus collection is unavailable. " + \
+                                  "Please restart the server and check that collection is available.")
         
-        if search_type in ['embedding', 'hybrid']:
+        if retrieval_method in ['embedding', 'hybrid']:
             # Encode query
-            _, q_enc = self.model.chunk_and_encode(query)
-            q_embs = self.model.get_embeddings(q_enc)
+            _, q_enc = self.embedding_model.chunk_and_encode(query)
+            q_embs = self.embedding_model.get_embeddings(q_enc)
             q_vec = q_embs.mean(axis=0).tolist()  # FIXME: Handle this differently?
 
-        if search_type == 'embedding':
+        if retrieval_method == 'embedding':
             hits = self.client.search(
-                collection_name=self.collection_name,
+                collection_name=self.store_name,
                 data=[q_vec],
                 anns_field='dense',
                 limit=top_k * doc_to_chunk_multiplier,
                 output_fields=['doc_id']
             )
             
-        elif search_type == 'keyword':
+        elif retrieval_method == 'keyword':
             search_params = {
                 'params': {'drop_ratio_search': 0.2},
             }
             
             hits = self.client.search(
-                collection_name=self.collection_name,
+                collection_name=self.store_name,
                 data=[query],
                 anns_field='sparse',
                 limit=top_k * doc_to_chunk_multiplier,
@@ -294,7 +355,7 @@ class MilvusDocumentStore:
                 output_fields=['doc_id']
             )
 
-        elif search_type == 'hybrid':
+        elif retrieval_method == 'hybrid':
             # Create AnnSearchRequest for dense vectors
             dense_search_params = {
                 'data': [q_vec],
@@ -331,14 +392,14 @@ class MilvusDocumentStore:
             
             # Perform hybrid search combining dense and sparse vectors
             hits = self.client.hybrid_search(
-                collection_name=self.collection_name,
+                collection_name=self.store_name,
                 reqs=[dense_request, sparse_request],
                 ranker=ranker,
                 limit=top_k * doc_to_chunk_multiplier,
                 output_fields=['doc_id']
             )
         else:
-            raise ValueError(f"Invalid search type: {search_type}")
+            raise ValueError(f"Invalid search type: {retrieval_method}")
         
         # Aggregate scores by document
         doc_scores = defaultdict(list)

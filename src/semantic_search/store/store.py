@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from tqdm import tqdm
-from typing import Literal, Dict, Any, List, Tuple
+from typing import Literal, Dict, Any, List, Tuple, Optional
 import json
 from rank_bm25 import BM25Okapi
 import pickle
@@ -15,9 +15,10 @@ from semantic_search.store.models import LocalEmbeddingModel
 class FAISSDocumentStore:
     def __init__(
         self, 
-        embedding_model: LocalEmbeddingModel | None = None,
+        embedding_model: Optional[LocalEmbeddingModel] = None,
+        store_name: str = 'main',
+        db_superdir: Optional[str] = None,
         index_metric: Literal['l2', 'ip'] | None = None,
-        db_dir: str = '../db',
         store_raw_embeddings: bool = False,
         chunk_store_columns: List[str] = [],
         doc_store_columns: List[str] = [],
@@ -31,7 +32,6 @@ class FAISSDocumentStore:
             index_metric: Metric for the FAISS index
             db_dir: Directory to store the database
             store_raw_embeddings: Whether to store raw embeddings
-            store_documents: Whether to store documents
             chunk_store_columns: 
                 List of columns to store in the chunk store. This is the data that will be returned by the search method.
                 The columns must be present in the document store.
@@ -52,43 +52,47 @@ class FAISSDocumentStore:
         self.chunk_store = None  # Initialize chunk_store attribute
 
         # Settings
+        self.db_dir = os.path.join(db_superdir, store_name)
+        self.store_name = store_name
         self.store_raw_embeddings = store_raw_embeddings
         self.chunk_store_columns = chunk_store_columns
         self.doc_store_columns = doc_store_columns
         self.use_bm25 = use_bm25
 
         # Data paths
-        self.db_dir = db_dir
-        self.metadata_path = os.path.join(self.db_dir, 'metadata.json')
-        self.index_path = os.path.join(self.db_dir, 'faiss_document_index.faiss')
-        self.document_store_path = os.path.join(self.db_dir, 'document_store.parquet')
-        self.chunk_store_path = os.path.join(self.db_dir, 'chunk_store.parquet')
-        self.embeddings_path = os.path.join(self.db_dir, 'embeddings.npy')
-        self.bm25_path = os.path.join(self.db_dir, 'bm25.pkl')
+        self._setup_paths()
 
-    def create_index_from_directory(self, data_dir: str) -> None:
-        """Create FAISS index from documents in the specified directory"""
-        documents = []
+    def _setup_paths(self) -> None:
+        """Setup paths for the store"""
+        if self.db_dir is not None:
+            Path(self.db_dir).mkdir(parents=True, exist_ok=True)
+            self.metadata_path = os.path.join(self.db_dir, 'metadata.json')
+            self.index_path = os.path.join(self.db_dir, 'faiss_document_index.faiss')
+            self.doc_store_path = os.path.join(self.db_dir, 'document_store.parquet')
+            self.chunk_store_path = os.path.join(self.db_dir, 'chunk_store.parquet')
+            self.embeddings_path = os.path.join(self.db_dir, 'embeddings.npy')
+            self.bm25_path = os.path.join(self.db_dir, 'bm25.pkl')
+        else:
+            self.metadata_path = None
+            self.index_path = None
+            self.doc_store_path = None
+            self.chunk_store_path = None
+            self.embeddings_path = None
+            self.bm25_path = None
 
-        doc_paths = list(Path(data_dir).glob("*.txt"))
-        print(f'Processing {len(doc_paths)} documents...')
-        for doc_id, fpath in tqdm(enumerate(doc_paths), total=len(doc_paths), desc="Loading documents"):
-            doc_text = fpath.read_text(encoding="utf-8")
-            
-            documents.append({
-                "id": doc_id,
-                "name": fpath.name,
-                "path": str(fpath),
-                "text": doc_text
-            })
-
-        self.create_index_from_df(pd.DataFrame(documents))
-
-    def create_index_from_df(self, documents: pd.DataFrame, write_to_disk: bool = True) -> None:
+    def _check_store_exists(self) -> bool:
+        """Check if the store exists using metadata file in directory."""
+        return os.path.exists(self.metadata_path)
+        
+    def create_index_from_df(self, documents: pd.DataFrame, db_superdir: Optional[str] = None, store_name: Optional[str] = None, overwrite: bool = False) -> None:
         """
         Create FAISS index from documents preprocessed into a DataFrame. DataFrame must have 
         the following columns: id, text (+ any other metadata columns which will be stored in the document store).
         """
+        self._update_name_and_dir(db_superdir, store_name)
+
+        if not overwrite and self._check_store_exists():
+            raise ValueError(f"Store {self.store_name} already exists. Set overwrite=True to overwrite.")
 
         if self.use_bm25:
             self._setup_bm25(documents)
@@ -141,12 +145,14 @@ class FAISSDocumentStore:
         self.index.add_with_ids(embeddings, np.array(self.chunk_store.index).astype('int64'))
         
         # Save the index and document store
-        if write_to_disk:
-            self.save_store()
+        self.save_store()
 
-    def save_metadata(self) -> None:
+    def _save_metadata(self) -> None:
         """Save metadata to disk"""
         metadata = {'store': {
+            'type': 'faiss',
+            'store_name': self.store_name,
+            'db_dir': self.db_dir,
             'index_metric': self.index_metric, 
             'store_raw_embeddings': self.store_raw_embeddings,
             'chunk_store_columns': self.chunk_store_columns,
@@ -158,11 +164,14 @@ class FAISSDocumentStore:
         with open(self.metadata_path, 'w') as f:
             json.dump(metadata, f, indent=4)
     
-    def load_metadata(self) -> dict:
+    def _load_metadata(self) -> dict:
         """Load metadata from disk"""
         with open(self.metadata_path, 'r') as f:
             metadata = json.load(f)
         store_metadata = metadata.get('store', {})
+        assert store_metadata.get('type') == 'faiss', "Metadata file contains invalid store type"
+        self.db_dir = store_metadata.get('db_dir')
+        self.store_name = store_metadata.get('store_name')
         self.index_metric = store_metadata.get('index_metric')
         self.store_raw_embeddings = store_metadata.get('store_raw_embeddings')
         self.chunk_store_columns = store_metadata.get('chunk_store_columns')
@@ -171,12 +180,20 @@ class FAISSDocumentStore:
 
         return metadata
     
-    def save_store(self) -> None:
+    def _update_name_and_dir(self, db_superdir: Optional[str] = None, store_name: Optional[str] = None) -> None:
+        if db_superdir is not None or store_name is not None:
+            self.db_dir = os.path.join(db_superdir, store_name)
+            self.store_name = store_name
+            self._setup_paths()
+        else:
+            assert self.db_dir is not None, "db_dir must be provided if not initialized in constructor"
+    
+    def save_store(self, db_superdir: Optional[str] = None, store_name: Optional[str] = None) -> None:
         """Save FAISS index, document and chunk store to disk"""
-        os.makedirs(self.db_dir, exist_ok=False)
+        self._update_name_and_dir(db_superdir, store_name)
 
         # Save metadata
-        self.save_metadata()
+        self._save_metadata()
         
         # Save BM25 model
         if self.use_bm25:
@@ -188,46 +205,65 @@ class FAISSDocumentStore:
         self.chunk_store.to_parquet(self.chunk_store_path)
 
         # Optionally, save document store and raw embeddings
-        self.document_store.to_parquet(self.document_store_path)
+        self.document_store.to_parquet(self.doc_store_path)
         if self.store_raw_embeddings:
             np.save(self.embeddings_path, self.embeddings)
 
-    def load_store(self) -> bool:
+    def _verify_db_dir(self) -> None:
+        """Verify that the additional data files exist in the database directory"""
+        # Required files
+        if not os.path.exists(self.doc_store_path):
+            raise ValueError(f"Document store path {self.doc_store_path} does not exist.")
+        if not os.path.exists(self.index_path):
+            raise ValueError(f"Index path {self.index_path} does not exist.")
+        if not os.path.exists(self.chunk_store_path):
+            raise ValueError(f"Chunk store path {self.chunk_store_path} does not exist.")
+
+        # Optional files
+        if self.store_raw_embeddings:
+            if not os.path.exists(self.embeddings_path):
+                raise ValueError(f"Embeddings path {self.embeddings_path} does not exist.")
+        if self.use_bm25:
+            if not os.path.exists(self.bm25_path):
+                raise ValueError(f"BM25 path {self.bm25_path} does not exist.")
+
+    def load_store(self, db_superdir: Optional[str] = None, store_name: Optional[str] = None) -> bool:
         """Load FAISS index and document store from disk"""
-        if os.path.exists(self.metadata_path):
-            self.load_metadata()
+        self._update_name_and_dir(db_superdir, store_name)
 
-            # Initialize embedding model
-            if 'embedding_model' in metadata:
-                if self.embedding_model is None:
-                    self.embedding_model = LocalEmbeddingModel(**metadata['embedding_model'])
-                else:
-                    print(f'Embedding model already initialized, skipping metadata update')
+        # Load metadata
+        if not os.path.exists(self.metadata_path):
+            raise ValueError(f"Metadata file {self.metadata_path} does not exist.")
+        metadata = self._load_metadata()
 
-            # Load BM25 model
-            if self.use_bm25:
-                with open(self.bm25_path, 'rb') as f:
-                    self.bm25 = pickle.load(f)
-
-            # Load FAISS index
-            self.index = faiss.read_index(str(self.index_path))
-            faiss_metric_type = ['ip', 'l2'][self.index.metric_type]
-            if faiss_metric_type != self.index_metric:
-                raise ValueError(f"Index metric mismatch between FAISS and store metadata: {faiss_metric_type} != {self.index_metric}")
-            
-            # Load document and chunk store
-            self.document_store = pd.read_parquet(self.document_store_path)
-            self.chunk_store = pd.read_parquet(self.chunk_store_path)
-
-            # Load raw embeddings
-            if self.store_raw_embeddings:
-                self.embeddings = np.load(self.embeddings_path)
-
-            print(f"Loaded index with {self.index.ntotal} vectors")
-            return True
+        # Initialize embedding model
+        if 'embedding_model' in metadata:
+            self.embedding_model = LocalEmbeddingModel(**metadata['embedding_model'])
         else:
-            print("Index or document store not found")
-            return False
+            self.embedding_model = None
+
+        # Verify that the database directory exists and contains all required files
+        self._verify_db_dir()
+
+        # Load FAISS index
+        self.index = faiss.read_index(str(self.index_path))
+        faiss_metric_type = ['ip', 'l2'][self.index.metric_type]
+        if faiss_metric_type != self.index_metric:
+            raise ValueError(f"Index metric mismatch between FAISS and store metadata: {faiss_metric_type} != {self.index_metric}")
+        
+        # Load document and chunk store
+        self.document_store = pd.read_parquet(self.doc_store_path)
+        self.chunk_store = pd.read_parquet(self.chunk_store_path)
+
+        # Load optional raw embeddings and bm25 object
+        if self.store_raw_embeddings:
+            self.embeddings = np.load(self.embeddings_path)
+        if self.use_bm25:
+            with open(self.bm25_path, 'rb') as f:
+                self.bm25 = pickle.load(f)
+
+        print(f"Loaded index with {self.index.ntotal} vectors")
+        return True
     
     def _dist_to_score(self, distance: float | np.ndarray) -> float | np.ndarray:
         """
