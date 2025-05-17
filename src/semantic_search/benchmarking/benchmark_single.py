@@ -12,7 +12,7 @@ from semantic_search.data_retrieval.utils import extract_abstract_from_md
 from semantic_search.store.store import FAISSDocumentStore
 from semantic_search.store.milvus_store import MilvusDocumentStore
 from semantic_search.utils import predict_refs_from_abstract, load_metadata
-from semantic_search.benchmarking.utils import calc_metric_at_levels
+from semantic_search.benchmarking.utils import calc_metric_at_topk
 from semantic_search.store.models import LocalEmbeddingModel
 
 
@@ -58,14 +58,13 @@ def compute_prec_recall_metrics(
     try:
         # Predict references
         print('Predicting references...')
-        ref_cnt = int(df.GT_refs.apply(len).mean())
         max_n_refs = 200
         ref_cnts = list(range(1, max_n_refs + 1))
         
         results = []
         for i, row in tqdm(df.iterrows(), total=len(df), desc='Predicting references'):
             pred = predict_refs_from_abstract(ds, row['abstract'], max_n_refs=max_n_refs, search_kwargs=search_kwargs)
-            metrics = calc_metric_at_levels(row['GT_refs'], pred, ref_cnts, ref_cnt)
+            metrics = calc_metric_at_topk(row['GT_refs'], pred, ref_cnts)
             results.append(metrics)
         results_df = pd.DataFrame(results)
     finally:
@@ -93,37 +92,59 @@ def extract_prec_recall_curves(
     metrics_err = df.std(axis=0) / np.sqrt(len(df))
 
     # Extract metrics for different levels
-    levels = []
-    precision_values, recall_values, f1_values = [], [], []
-    precision_err, recall_err, f1_err = [], [], []
+    ref_cnts = []
+    precision_values, recall_values, f1_values, jaccard_values = [], [], [], []
+    precision_err, recall_err, f1_err, jaccard_err = [], [], [], []
 
-    max_level = max([int(name.split('lvl')[-1]) for name in metrics_mean.index.tolist() if name.startswith('prec_lvl')])
-    for level in range(1, max_level + 1):  # Assuming levels 1-200 based on output
-        level_str = f'lvl{level}'
-        if f'prec_{level_str}' in metrics_mean:
-            levels.append(level)
-            precision_values.append(metrics_mean[f'prec_{level_str}'])
-            recall_values.append(metrics_mean[f'rec_{level_str}'])
-            f1_values.append(metrics_mean[f'f1_{level_str}'])
-            precision_err.append(metrics_err[f'prec_{level_str}'])
-            recall_err.append(metrics_err[f'rec_{level_str}'])
-            f1_err.append(metrics_err[f'f1_{level_str}'])
+    max_topk = max([int(name.split('top')[-1]) for name in metrics_mean.index.tolist() if name.startswith('prec_top')])
+    for topk in range(1, max_topk + 1):  # Assuming levels 1-200 based on output
+        topk_str = f'top{topk}'
+        if f'prec_{topk_str}' in metrics_mean:
+            ref_cnts.append(topk)
+            precision_values.append(metrics_mean[f'prec_{topk_str}'])
+            recall_values.append(metrics_mean[f'rec_{topk_str}'])
+            f1_values.append(metrics_mean[f'f1_{topk_str}'])
+            precision_err.append(metrics_err[f'prec_{topk_str}'])
+            recall_err.append(metrics_err[f'rec_{topk_str}'])
+            f1_err.append(metrics_err[f'f1_{topk_str}'])
+            jaccard_values.append(metrics_mean[f'jaccard_{topk_str}'])
+            jaccard_err.append(metrics_err[f'jaccard_{topk_str}'])
 
     # Create the plot
     plt.figure(figsize=(8, 5))
-    plt.plot(levels, precision_values, label='Precision', marker='', linewidth=2)
-    plt.fill_between(levels, np.array(precision_values) - np.array(precision_err), 
+    plt.plot(ref_cnts, precision_values, label='Precision', marker='', linewidth=2)
+    plt.fill_between(ref_cnts, np.array(precision_values) - np.array(precision_err), 
                     np.array(precision_values) + np.array(precision_err), alpha=0.2)
-    plt.plot(levels, recall_values, label='Recall', marker='', linewidth=2)
-    plt.fill_between(levels, np.array(recall_values) - np.array(recall_err), 
+    plt.plot(ref_cnts, recall_values, label='Recall', marker='', linewidth=2)
+    plt.fill_between(ref_cnts, np.array(recall_values) - np.array(recall_err), 
                     np.array(recall_values) + np.array(recall_err), alpha=0.2)
-    plt.plot(levels, f1_values, label='F1 Score', marker='', linewidth=2)
-    plt.fill_between(levels, np.array(f1_values) - np.array(f1_err), 
+    plt.plot(ref_cnts, f1_values, label='F1 Score', marker='', linewidth=2)
+    plt.fill_between(ref_cnts, np.array(f1_values) - np.array(f1_err), 
                     np.array(f1_values) + np.array(f1_err), alpha=0.2)
+    plt.plot(ref_cnts, jaccard_values, label='Jaccard', marker='', linewidth=2)
+    plt.fill_between(ref_cnts, np.array(jaccard_values) - np.array(jaccard_err), 
+                    np.array(jaccard_values) + np.array(jaccard_err), alpha=0.2)
+    
+    # Find the index of maximum F1 score
+    max_f1_idx = np.argmax(f1_values)
+    max_f1_topk = ref_cnts[max_f1_idx]
+    max_f1 = f1_values[max_f1_idx]
+    max_precision = precision_values[max_f1_idx]
+    max_recall = recall_values[max_f1_idx]
+    max_jaccard = jaccard_values[max_f1_idx]
+    
+    # Add vertical line at maximum F1 score
+    plt.axvline(x=max_f1_topk, color='gray', linestyle='--', alpha=0.7)
+    
+    # Add text box with metrics at maximum F1
+    textstr = f'Max F1 at top-{max_f1_topk}:\nF1: {max_f1:.3f}\nPrecision: {max_precision:.3f}\nRecall: {max_recall:.3f}\nJaccard: {max_jaccard:.3f}'
+    props = dict(boxstyle='round', facecolor='white', alpha=0.7)
+    plt.text(0.05, 0.05, textstr, transform=plt.gca().transAxes, fontsize=9,
+             verticalalignment='bottom', bbox=props)
 
     plt.xlabel('Number of References (k)')
     plt.ylabel('Score')
-    plt.title('Precision, Recall, and F1 Score at Different Reference Levels')
+    plt.title('Precision, Recall, F1 Score, and Jaccard for different top-k references')
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
