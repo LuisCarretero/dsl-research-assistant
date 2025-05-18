@@ -22,7 +22,11 @@ class MilvusDocumentStore:
         store_raw_embeddings: bool = False,
     ):
         # Settings
-        self.db_dir = os.path.join(db_superdir, store_name)
+        if db_superdir is not None:
+            self.db_dir = os.path.join(db_superdir, store_name)
+        else:
+            self.db_dir = None
+
         assert all(c.isalnum() or (c == '_' and i > 0) for i, c in enumerate(store_name)), "Store name must contain only alphanumeric characters and underscores, no leading underscore"
         self.store_name = store_name
         self.store_documents = store_documents
