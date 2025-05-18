@@ -3,8 +3,9 @@ import argparse
 from typing import Literal, List
 
 from semantic_search.store.faiss_store import FAISSDocumentStore
+from semantic_search.store.milvus_store import MilvusDocumentStore
 from semantic_search.store.models import create_embedding_model
-from semantic_search.utils import load_metadata
+from semantic_search.utils import load_data
 
 
 def create_store(
@@ -16,23 +17,39 @@ def create_store(
     max_refs: int = -1,
     store_raw_embeddings: bool = True,
     doc_store_columns: List[str] = [],
-    chunk_store_columns: List[str] = []
+    chunk_store_columns: List[str] = [],
+    store_type: Literal['faiss', 'milvus'] = 'faiss',
+    overwrite: bool = False,
+    store_documents: bool = True,
 ) -> None:
+    store_type = store_type.lower()
+    if store_type not in ['faiss', 'milvus']:
+        raise ValueError(f"Invalid store type: {store_type}")
     
     model = create_embedding_model(model_name)
-    store = FAISSDocumentStore(
-        model, 
-        db_superdir=os.path.join(store_dirpath, (store_name or model_name.replace("/", "_"))),
-        index_metric=index_metric,
-        store_raw_embeddings=store_raw_embeddings,
-        chunk_store_columns=chunk_store_columns,
-        doc_store_columns=doc_store_columns
-    )
+    if store_type == 'faiss':
+        store = FAISSDocumentStore(
+            model, 
+            db_superdir=store_dirpath,
+            store_name=store_name,
+            index_metric=index_metric,
+            store_raw_embeddings=store_raw_embeddings,
+            chunk_store_columns=chunk_store_columns,
+            doc_store_columns=doc_store_columns
+        )
+    elif store_type == 'milvus':
+        store = MilvusDocumentStore(
+            model, 
+            db_superdir=store_dirpath,
+            store_name=store_name,
+            store_raw_embeddings=store_raw_embeddings,
+            store_documents=store_documents,
+        )
 
-    if not store.load_store():
-        _, ref_df = load_metadata(metadata_dirpath, filter_good_papers=True, filter_good_references=True)
+    if not store.load_store(allow_fail=True):
+        _, ref_df = load_data(metadata_dirpath, filter_good_papers=True, filter_good_references=True)
         ref_df.rename(columns={'oaid': 'id', 'abstract': 'text'}, inplace=True)
-        store.create_index_from_df(ref_df.iloc[:max_refs])
+        store.create_index_from_df(ref_df.iloc[:max_refs], overwrite=overwrite)
     else:
         print(f'Store {store_name} already exists in {store_dirpath}.')
 
@@ -40,8 +57,7 @@ def create_store(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
-    basepath = ['/Users/luis/Desktop/ETH/Courses/SS25-DSL',
-                '/Users/luis/Desktop/ETH/Courses/SS25-DSL'][1]
+    basepath = '/Users/luis/Desktop/ETH/Courses/SS25-DSL'
     parser.add_argument('--model_name', type=str, default='sentence-transformers/all-MiniLM-L6-v2')
     parser.add_argument('--metadata_dirpath', type=str, default=os.path.join(basepath, 'raw-data/metadata3'))
     parser.add_argument('--store_dirpath', type=str, default=os.path.join(basepath, 'db'))
@@ -53,7 +69,10 @@ if __name__ == "__main__":
                        help='List of columns to store in doc store')
     parser.add_argument('--chunk_store_columns', type=str, default=[], nargs='+', 
                        help='List of columns to store in chunk store')
-    
+    parser.add_argument('--store_type', type=str, default='faiss', choices=['faiss', 'milvus'])
+    parser.add_argument('--overwrite', type=bool, default=False)
+    parser.add_argument('--store_documents', type=bool, default=True)
+
     args = parser.parse_args()
 
     create_store(
@@ -66,4 +85,9 @@ if __name__ == "__main__":
         store_raw_embeddings=args.store_raw_embeddings,
         doc_store_columns=args.doc_store_columns,
         chunk_store_columns=args.chunk_store_columns,
+        store_type=args.store_type,
+        overwrite=args.overwrite,
+        store_documents=args.store_documents,
     )
+
+# poetry run python -m semantic_search.store.create_store --store_type=milvus --store_name=mini1 --max_refs=100

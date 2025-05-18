@@ -1,11 +1,11 @@
-from semantic_search.utils import load_metadata
+from semantic_search.utils import load_data
 from semantic_search.store.models import LocalEmbeddingModel
 from semantic_search.store.milvus_store import MilvusDocumentStore
 from semantic_search.store.faiss_store import FAISSDocumentStore
 from time import sleep
 import numpy as np
 
-df, ref_df = load_metadata(
+df, ref_df = load_data(
     '/Users/luis/Desktop/ETH/Courses/SS25-DSL/raw-data/metadata3',
     filter_good_papers=True,
     filter_good_references=True

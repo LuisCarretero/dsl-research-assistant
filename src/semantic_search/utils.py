@@ -20,10 +20,11 @@ def get_good_papers_mask(df: pd.DataFrame) -> np.ndarray:
     return mask
 
 def get_good_references_mask(df: pd.DataFrame) -> np.ndarray:
-    mask = (df.abstract.fillna('').apply(len) > 0)
+    abstract_len = df.abstract.fillna('').apply(len)
+    mask = (abstract_len > 0) & (abstract_len < 4000)
     return mask
 
-def load_metadata(
+def load_data(
         dirpath: str,
         filter_good_papers: bool = False,
         filter_good_references: bool = False

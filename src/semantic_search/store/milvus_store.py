@@ -23,6 +23,7 @@ class MilvusDocumentStore:
     ):
         # Settings
         self.db_dir = os.path.join(db_superdir, store_name)
+        assert all(c.isalnum() or (c == '_' and i > 0) for i, c in enumerate(store_name)), "Store name must contain only alphanumeric characters and underscores, no leading underscore"
         self.store_name = store_name
         self.store_documents = store_documents
         self.store_raw_embeddings = store_raw_embeddings
@@ -439,4 +440,5 @@ class MilvusDocumentStore:
 
     def __del__(self):
         """Ensure client is disconnected when object is garbage collected."""
-        self._disconnect_client()
+        if getattr(self, 'client', None) is not None:
+            self._disconnect_client()

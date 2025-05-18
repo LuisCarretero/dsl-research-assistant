@@ -1,6 +1,6 @@
 from transformers import AutoTokenizer, AutoModel
 import torch
-from typing import Union, Literal, Dict, Any, List
+from typing import Union, Literal, Dict, Any, List, Optional, Callable
 import numpy as np
 from tqdm import tqdm
 import sys
@@ -21,17 +21,28 @@ class LocalEmbeddingModel:
         device: str | None = None,
         pooling_type: Literal['mean', 'last', 'cls'] = 'mean',  # cls is first token
         normalize_embeddings: bool = True,
-        preferred_index_metric: Literal['l2', 'ip'] = 'l2'
+        preferred_index_metric: Literal['l2', 'ip'] = 'l2',
+        query_formatter: Optional[Callable[[str], str]] = None,
+        ingestion_formatter: Optional[Callable[[str], str]] = None
     ):
+        # Tokenizer and model
+        self.model_name = model_name
         self.tokenizer = AutoTokenizer.from_pretrained(model_name) 
         self.model = AutoModel.from_pretrained(model_name)
-        self.model_name = model_name
-
+        
+        # Settings/config
         self.batch_size = batch_size
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.embedding_dim = self.model.config.hidden_size
-        
+        assert pooling_type in ['mean', 'last', 'cls'], f"Invalid pooling type: {pooling_type}"
+        self.pooling_type = pooling_type
+        self.normalize_embeddings = normalize_embeddings
+        self.preferred_index_metric = preferred_index_metric
+        self.query_formatter = query_formatter
+        self.ingestion_formatter = ingestion_formatter
+
+        # Device
         if device is None:
             self.device = torch.device(
                 "cuda" if torch.cuda.is_available() 
@@ -43,12 +54,7 @@ class LocalEmbeddingModel:
         print(f'Using device: {self.device}')
         self.model.to(self.device)
 
-        assert pooling_type in ['mean', 'last', 'cls'], f"Invalid pooling type: {pooling_type}"
-        self.pooling_type = pooling_type
-        self.normalize_embeddings = normalize_embeddings
-        self.preferred_index_metric = preferred_index_metric
-
-    def chunk_and_encode(self, texts: Union[list[str], str], progress_bar: bool = False) -> tuple[list[str], list[dict]]:
+    def chunk_and_encode(self, texts: Union[list[str], str], progress_bar: bool = False, is_query: bool = False) -> tuple[list[str], list[dict]]:
         """
         Chunk texts at token level using the model's tokenizer and encode the chunks.
 
@@ -71,8 +77,12 @@ class LocalEmbeddingModel:
         else:
             assert isinstance(texts, list), "texts must be a list"
             unwrap = False
-        all_chunks_text = []
-        all_chunks_encoded = []
+        all_chunks_text, all_chunks_encoded = [], []
+
+        if is_query and self.query_formatter is not None:
+            texts = [self.query_formatter(text) for text in texts]
+        elif not is_query and self.ingestion_formatter is not None:
+            texts = [self.ingestion_formatter(text) for text in texts]
 
         effective_chunk_size = self.chunk_size - 2  # Subtract 2 for the special tokens
         stride = effective_chunk_size - self.chunk_overlap
@@ -190,6 +200,7 @@ class LocalEmbeddingModel:
             'chunk_size': self.chunk_size,
             'chunk_overlap': self.chunk_overlap,
             'batch_size': self.batch_size,
+            'embedding_dim': self.embedding_dim,
             'pooling_type': self.pooling_type,
             'normalize_embeddings': self.normalize_embeddings,
             'preferred_index_metric': self.preferred_index_metric
@@ -198,14 +209,16 @@ class LocalEmbeddingModel:
 
 DEFAULT_MODEL_PARAMS = {
     'sentence-transformers/all-MiniLM-L6-v2': dict(
+        # https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
         chunk_size=256,
         chunk_overlap=32,
         batch_size=8,
         pooling_type='mean',
         normalize_embeddings=True,
-        preferred_index_metric='l2'
+        preferred_index_metric='ip'
     ),
     'allenai/specter2': dict(
+        # https://huggingface.co/allenai/specter2
         chunk_size=512,
         chunk_overlap=64,
         batch_size=8,
@@ -214,12 +227,32 @@ DEFAULT_MODEL_PARAMS = {
         preferred_index_metric='ip'
     ),
     'prdev/mini-gte': dict(
+        # https://huggingface.co/prdev/mini-gte
         chunk_size=512,
         chunk_overlap=64,
         batch_size=8,
-        pooling_type='mean',
+        pooling_type='mean',  # Used HF config to infer this.
         normalize_embeddings=True,
         preferred_index_metric='ip'
+    ),
+    'ibm-granite/granite-embedding-278m-multilingual': dict(
+        # https://huggingface.co/ibm-granite/granite-embedding-278m-multilingual
+        chunk_size=512,
+        chunk_overlap=64,
+        batch_size=4,
+        pooling_type='cls',
+        normalize_embeddings=True,
+        preferred_index_metric='ip'
+    ),
+    'Snowflake/snowflake-arctic-embed-m-v2.0': dict(
+        # https://huggingface.co/Snowflake/snowflake-arctic-embed-m-v2.0
+        chunk_size=8192,
+        chunk_overlap=512,
+        batch_size=1,  # TODO: Add special query method.
+        pooling_type='cls',
+        normalize_embeddings=True,
+        preferred_index_metric='ip',
+        query_formatter=lambda x: f"query:{x}"
     )
 }
 
