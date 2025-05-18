@@ -2,7 +2,6 @@ import pandas as pd
 from tqdm import tqdm
 from matplotlib import pyplot as plt
 import argparse
-import os
 from typing import Optional, Literal
 from pathlib import Path
 import numpy as np
@@ -13,7 +12,6 @@ from semantic_search.store.faiss_store import FAISSDocumentStore
 from semantic_search.store.milvus_store import MilvusDocumentStore
 from semantic_search.utils import predict_refs_from_abstract, load_data
 from semantic_search.benchmarking.utils import calc_metric_at_topk
-from semantic_search.store.models import LocalEmbeddingModel
 
 
 def compute_prec_recall_metrics(
@@ -34,7 +32,6 @@ def compute_prec_recall_metrics(
     # Load paper and reference metadata
     print('Loading data...')
     df, ref_df = load_data(metadata_dirpath, filter_good_papers=True, filter_good_references=True)
-    df['fpath'] = df['fpath'].str.replace('/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant', '/Users/luis/Desktop/ETH/Courses/SS25-DSL')  # FIXME: Do this dynamically?
     df['abstract'] = df['fpath'].apply(extract_abstract_from_md)
     df = df[df.abstract.apply(len) > 0]
     df = df.iloc[:first_n_papers]
