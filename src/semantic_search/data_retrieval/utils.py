@@ -177,7 +177,7 @@ def get_ref_metadata_oa(ref_ids: List[str], id_key: str = 'openalex_id', progres
     """
     Get metadata of interest for each reference work using OpenAlex API. Searches by OpenAlex ID.
     """
-    fields_of_interest = ['id', 'doi','abstract_inverted_index', 'title', 'type', 'topics']
+    fields_of_interest = ['id', 'doi','abstract_inverted_index', 'title', 'type', 'topics', 'cited_by_count', 'citation_normalized_percentile']
 
     if len(ref_ids) == 0: return np.array([])
     if id_key == 'openalex_id':
@@ -210,7 +210,11 @@ def get_ref_metadata_oa(ref_ids: List[str], id_key: str = 'openalex_id', progres
                 'topic': item['topics'][0]['display_name'] if item['topics'] else None,
                 'domain': item['topics'][0]['domain']['display_name'] if item['topics'] else None,
                 'field': item['topics'][0]['field']['display_name'] if item['topics'] else None,
-                'subfield': item['topics'][0]['subfield']['display_name'] if item['topics'] else None
+                'subfield': item['topics'][0]['subfield']['display_name'] if item['topics'] else None,
+                'cited_by_count': item.get('cited_by_count'),
+                'citation_normalized_percentile': item['citation_normalized_percentile']['value'] if item['citation_normalized_percentile'] else None,
+                'is_in_top_1_percent': item['citation_normalized_percentile']['is_in_top_1_percent'] if item['citation_normalized_percentile'] else None,
+                'is_in_top_10_percent': item['citation_normalized_percentile']['is_in_top_10_percent'] if item['citation_normalized_percentile'] else None
             })
     return np.array(res)
 
