@@ -46,14 +46,12 @@ def compute_prec_recall_metrics(
     # Load document store
     print('Loading document store...')
     if store_type == 'faiss':
-        ds = FAISSDocumentStore(db_superdir=os.path.join(store_dirpath, store_name))
+        ds = FAISSDocumentStore(db_superdir=store_dirpath, store_name=store_name)
     elif store_type == 'milvus':
-        ds = MilvusDocumentStore(
-            db_superdir=os.path.join(store_dirpath, store_name),
-            model=LocalEmbeddingModel()
-        )
-        assert ds._check_index_available()
+        ds = MilvusDocumentStore(db_superdir=store_dirpath, store_name=store_name)
     assert ds.load_store() # Make sure store has been initialized
+    if store_type == 'milvus':
+        assert ds._check_index_available()
 
     try:
         # Predict references
@@ -160,11 +158,12 @@ if __name__ == "__main__":
     parser.add_argument('--metadata_dirpath', type=str, default='/Users/luis/Desktop/ETH/Courses/SS25-DSL/raw-data/metadata3')
     parser.add_argument('--store_dirpath', type=str, default='/Users/luis/Desktop/ETH/Courses/SS25-DSL/db')
     parser.add_argument('--results_dirpath', type=str, default='/Users/luis/Desktop/ETH/Courses/SS25-DSL/benchmark_results')
+    parser.add_argument('--store_type', type=str, default='milvus', choices=['faiss', 'milvus'])
+    parser.add_argument('--retrieval_method', type=str, default='hybrid', choices=['hybrid', 'embedding', 'keyword'])
     args = parser.parse_args()
 
     search_kwargs = {
-        # 'retrieval_method': 'hybrid'
-        'search_type': 'hybrid'
+        'retrieval_method': args.retrieval_method
     }
 
     compute_prec_recall_metrics(
@@ -174,7 +173,7 @@ if __name__ == "__main__":
         results_dirpath=args.results_dirpath,
         experiment_name=args.experiment_name,
         search_kwargs=search_kwargs,
-        store_type='milvus'
+        store_type=args.store_type
     )
     extract_prec_recall_curves(
         results_dirpath=args.results_dirpath,

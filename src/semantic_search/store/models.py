@@ -28,7 +28,7 @@ class LocalEmbeddingModel:
         # Tokenizer and model
         self.model_name = model_name
         self.tokenizer = AutoTokenizer.from_pretrained(model_name) 
-        self.model = AutoModel.from_pretrained(model_name)
+        self.model = AutoModel.from_pretrained(model_name, trust_remote_code=True)
         
         # Settings/config
         self.batch_size = batch_size
@@ -194,13 +194,12 @@ class LocalEmbeddingModel:
         return np.vstack(embeddings)
     
     def get_metadata(self) -> Dict[str, Any]:
-        """Get metadata from the model"""
+        """Get metadata from the model needed for initializing."""
         return {
             'model_name': self.model_name,
             'chunk_size': self.chunk_size,
             'chunk_overlap': self.chunk_overlap,
             'batch_size': self.batch_size,
-            'embedding_dim': self.embedding_dim,
             'pooling_type': self.pooling_type,
             'normalize_embeddings': self.normalize_embeddings,
             'preferred_index_metric': self.preferred_index_metric
@@ -217,11 +216,11 @@ DEFAULT_MODEL_PARAMS = {
         normalize_embeddings=True,
         preferred_index_metric='ip'
     ),
-    'allenai/specter2': dict(
+    'allenai/specter2_base': dict(
         # https://huggingface.co/allenai/specter2
         chunk_size=512,
         chunk_overlap=64,
-        batch_size=8,
+        batch_size=16,
         pooling_type='cls',
         normalize_embeddings=True,
         preferred_index_metric='ip'
@@ -244,20 +243,29 @@ DEFAULT_MODEL_PARAMS = {
         normalize_embeddings=True,
         preferred_index_metric='ip'
     ),
-    'Snowflake/snowflake-arctic-embed-m-v2.0': dict(
-        # https://huggingface.co/Snowflake/snowflake-arctic-embed-m-v2.0
+    # 'Snowflake/snowflake-arctic-embed-m-v2.0': dict( <- Requires xformers, not possible on MacM1
+    #     # https://huggingface.co/Snowflake/snowflake-arctic-embed-m-v2.0
+    #     chunk_size=8192,
+    #     chunk_overlap=512,
+    #     batch_size=1,
+    #     pooling_type='cls',
+    #     normalize_embeddings=True,
+    #     preferred_index_metric='ip',
+    #     query_formatter=lambda x: f"query:{x}"
+    # ),
+    'Alibaba-NLP/gte-multilingual-base': dict(  # <- Too large for MacM1
+        # https://huggingface.co/Alibaba-NLP/gte-multilingual-base
         chunk_size=8192,
         chunk_overlap=512,
-        batch_size=1,  # TODO: Add special query method.
+        batch_size=1,
         pooling_type='cls',
         normalize_embeddings=True,
         preferred_index_metric='ip',
-        query_formatter=lambda x: f"query:{x}"
     )
 }
 
 
-def create_embedding_model(model_name: str, device: str | None = None) -> LocalEmbeddingModel:
+def create_embedding_model(model_name: str, device: Optional[str] = None) -> LocalEmbeddingModel:
     """
     Create an embedding model from a model name using default parameters.
     """
@@ -265,7 +273,7 @@ def create_embedding_model(model_name: str, device: str | None = None) -> LocalE
         raise ValueError(f"Invalid model name: {model_name}. Available models: {DEFAULT_MODEL_PARAMS.keys()}")
     
     params = DEFAULT_MODEL_PARAMS[model_name]
-    if device is None:
-        params['device'] = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu'
+    if device is not None:
+        params['device'] = device
 
-    return LocalEmbeddingModel(**params)
+    return LocalEmbeddingModel(model_name, **params)

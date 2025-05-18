@@ -1,25 +1,17 @@
 
-# all-MiniLM-L6-v2
-# python -m semantic_search.store.create_store \
-#     --model_name sentence-transformers/all-MiniLM-L6-v2 \
-#     --max_refs -1
 
-# python -m semantic_search.benchmarking.benchmark_single \
-#     --store_name sentence-transformers/all-MiniLM-L6-v2
+#!/bin/bash
 
-# # specter2
-# python -m semantic_search.store.create_store \
-#     --model_name allenai/specter2 \
-#     --max_refs -1
+# Define arrays for store names and retrieval methods
+STORE_NAMES=("granite" "mini_gte" "MiniLM" "specter2_base")
+RETRIEVAL_METHODS=("hybrid" "embedding" "keyword")
 
-# python -m semantic_search.benchmarking.benchmark_single \
-#     --store_name allenai/specter2
+# Loop through each store name and retrieval method
+for store in "${STORE_NAMES[@]}"; do
+    for method in "${RETRIEVAL_METHODS[@]}"; do
+        echo "Running benchmark for store: $store, method: $method"
+        python -m semantic_search.benchmarking.benchmark_single \
+            --store_name "$store" --experiment_name "$store-$method" --retrieval_method "$method"
+    done
+done
 
-# prdev/mini-gte
-# python -m semantic_search.store.create_store \
-#     --model_name prdev/mini-gte \
-#     --store_name prdev_mini-gte_meanPooling \
-#     --max_refs -1
-
-python -m semantic_search.benchmarking.benchmark_single \
-    --store_name prdev_mini-gte_meanPooling
