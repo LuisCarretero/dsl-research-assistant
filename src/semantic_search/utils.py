@@ -3,7 +3,7 @@ import numpy as np
 from pathlib import Path
 from typing import Tuple, List
 
-from semantic_search.data_retrieval.utils import parse_list_string
+from semantic_search.data_retrieval.utils import parse_list_string, extract_abstract_from_md
 from semantic_search.store.faiss_store import FAISSDocumentStore
 
 
@@ -25,9 +25,11 @@ def get_good_references_mask(df: pd.DataFrame) -> np.ndarray:
     return mask
 
 def load_data(
-        dirpath: str,
-        filter_good_papers: bool = False,
-        filter_good_references: bool = False
+    dirpath: str,
+    filter_good_papers: bool = False,
+    filter_good_references: bool = False,
+    extract_abstract: bool = False,
+    paper_dirpath: str = 'Users/luis/Desktop/ETH/Courses/SS25-DSL/raw-data/Conversions/opencvf-data/txt/'
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     dirpath = Path(dirpath)
     ref_df = pd.read_csv(dirpath / 'refs.csv')
@@ -37,13 +39,21 @@ def load_data(
     for col in ['oa_refs_oaid', 'ss_refs_doi', 'ss_refs_ssid', 'refs_oaids_from_dois', 'refs_dois_from_oaids']:
         df[col] = df[col].apply(parse_list_string)
 
+    # Filter good papers and references
     if filter_good_papers:
         mask = get_good_papers_mask(df)
         df = df[mask]
-
     if filter_good_references:
         mask = get_good_references_mask(ref_df)
         ref_df = ref_df[mask]
+
+    # Replace paper directory path
+    df['fpath'] = df['fpath'].str.replace(
+        '/cluster/home/lcarretero/workspace/dsl/dsl-research-assistant/raw-data/Conversions/opencvf-data/txt/', 
+        paper_dirpath
+    )
+    if extract_abstract:
+        df['abstract'] = df['fpath'].apply(extract_abstract_from_md)
 
     return df, ref_df
 
