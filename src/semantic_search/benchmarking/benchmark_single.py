@@ -223,11 +223,25 @@ if __name__ == "__main__":
     parser.add_argument('--results_dirpath', type=str, default='/Users/luis/Desktop/ETH/Courses/SS25-DSL/benchmark_results')
     parser.add_argument('--store_type', type=str, default='milvus', choices=['faiss', 'milvus'])
     parser.add_argument('--retrieval_method', type=str, default='hybrid', choices=['hybrid', 'embedding', 'keyword'])
+    parser.add_argument('--add_hot_papers', type=bool, default=False)
+    parser.add_argument('--use_citation_scoring', type=bool, default=True)
+    parser.add_argument('--cit_score_weight', type=float, default=0.05)
+    parser.add_argument('--hybrid_ranker_type', type=str, default='weighted', choices=['weighted', 'RFR'])
+    parser.add_argument('--hybrid_ranker_weights', type=str, default=[0.7, 0.3])
+    parser.add_argument('--hybrid_ranker_k', type=int, default=60)
     args = parser.parse_args()
 
-    search_kwargs = {
-        'retrieval_method': args.retrieval_method
-    }
+    search_kwargs = dict(
+        retrieval_method=args.retrieval_method,
+        add_hot_papers=args.add_hot_papers,
+        use_citation_scoring=args.use_citation_scoring,
+        cit_score_weight=args.cit_score_weight,
+        hybrid_ranker={
+            'type': args.hybrid_ranker_type, 
+            'weights': [float(w) for w in args.hybrid_ranker_weights.strip('[]').split(',')], 
+            'k': args.hybrid_ranker_k
+        }
+    )
 
     if args.benchmark_type == 'abstract':
         run_abstract_benchmark(
@@ -264,6 +278,6 @@ if __name__ == "__main__":
         )
 
 """
-src % python -m semantic_search.benchmarking.benchmark_single --store_name=mini_gte --experiment_name=test1 --benchmark_type=abstract --first_n_queries=100
+src % python -m semantic_search.benchmarking.benchmark_single --store_name=mini_gte --experiment_name=mini_gte_citReranking --benchmark_type=abstract --first_n_queries=10 --retrieval_method=hybrid
 src % python -m semantic_search.benchmarking.benchmark_single --store_name=mini_gte --experiment_name=related_work1 --benchmark_type=related_work --first_n_queries=1000 --max_top_k=30
 """
