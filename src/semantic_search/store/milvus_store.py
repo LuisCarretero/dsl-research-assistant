@@ -317,19 +317,47 @@ class MilvusDocumentStore:
         self.save_store()
             
         print(f"Indexed {len(documents)} documents in Milvus")
-    
-    def search(
+
+    def _get_citation_scores(self, doc_ids: list[str]) -> list[float]:
+        if not self.store_documents:
+            raise ValueError("Cannot get citation scores - document store is not enabled.")
+        assert self.document_store is not None, "Document store is not loaded."
+        
+        # Load from cache if available
+        if not '_citation_scores' in self.document_store.columns:
+            # Compute citation scores
+            cit_cnt = self.document_store['cited_by_count'].values
+            cit_cnt_log = np.log(cit_cnt + 1)
+            cit_scores = cit_cnt_log / np.max(cit_cnt_log)
+
+            # Cache citation scores
+            self.document_store['_citation_scores'] = cit_scores
+
+        # Get citation scores
+        mask = (self.document_store['id'].isin(doc_ids))
+        tmp = self.document_store.loc[mask, ['id', '_citation_scores']].set_index('id')
+        return [float(tmp.loc[oaid].values[0]) for oaid in doc_ids]
+
+    def _milvus_search(
         self, 
         query: str, 
-        top_k: int = 10,
-        return_scores: bool = True,
-        return_doc_metadata: bool = False,
-        retrieval_method: Literal['embedding', 'keyword', 'hybrid'] = 'embedding',
-        hybrid_ranker: dict = {'type': 'weighted', 'weights': [0.7, 0.3]}
+        top_k: int = 10, 
+        retrieval_method: Literal['embedding', 'keyword', 'hybrid'] = 'embedding', 
+        hybrid_ranker: dict = {'type': 'weighted', 'weights': [0.7, 0.3]},
+        doc_to_chunk_multiplier: int = 2,
+        hybrid_multiplier: int = 2,
     ) -> list[dict]:
-        """Search using either dense embeddings or keyword search and return document-level results."""
-        doc_to_chunk_multiplier = 2
-        hybrid_multiplier = 2
+        """
+        Search using dense embeddings, keyword search, or hybrid search and return document-level results.
+
+        Args:
+            query: The query string to search for.
+            top_k: The number of top results to return.
+            retrieval_method: The method to use for retrieval.
+            hybrid_ranker: The ranker to use for hybrid retrieval.
+            doc_to_chunk_multiplier: The multiplier for the number of chunks to search.
+            hybrid_multiplier: The multiplier for the number of chunks to search for hybrid retrieval.
+        """
 
         if not self.check_index_available():
             raise ConnectionError("Cannot search - Milvus collection is unavailable. " + \
@@ -422,16 +450,90 @@ class MilvusDocumentStore:
         for doc_id, scores in doc_scores.items():
             doc_score = max(scores)  # Use max score among chunks
             doc_rankings.append((doc_id, doc_score))
+
+        return doc_rankings
+    
+    def _get_hot_paper_ids(self, top_k: int = 100, cache: bool = True) -> list[int]:
+        """Get the top-k most cited papers from the document store."""
+        if not self.store_documents:
+            raise ValueError("Cannot get hot paper IDs - document store is not enabled.")
+        assert self.document_store is not None, "Document store is not loaded."
+
+        if cache and hasattr(self, '_hot_ids') and hasattr(self, '_hot_ids_top_k') and self._hot_ids_top_k == top_k:
+            return self._hot_ids
         
-        # Sort documents by score
-        doc_rankings.sort(key=lambda x: x[1], reverse=True)
+        hot_ids = self.document_store.nlargest(top_k, 'cited_by_count')['id'].tolist()
+        self._hot_ids_top_k = top_k
+        if cache:
+            self._hot_ids = hot_ids
         
-        # Format results
+        return hot_ids
+
+    def search(
+        self, 
+        query: str, 
+        top_k: int = 10,
+        return_scores: bool = True,
+        return_doc_metadata: bool = False,
+        retrieval_method: Literal['embedding', 'keyword', 'hybrid'] = 'embedding',
+        hybrid_ranker: dict = {'type': 'weighted', 'weights': [0.7, 0.3]},
+        use_citation_scoring: bool = True,
+        cit_score_weight: float = 0.2,
+        add_hot_papers: bool = True,
+        doc_to_chunk_multiplier: int = 2,
+        hybrid_multiplier: int = 2,
+        hot_paper_multiplier: int = 2,
+    ) -> list[dict]:
+        """Search using either dense embeddings or keyword search and return document-level results."""
+        
+        # Run Milvus search (on sparse and dense embeddings)
+        emb_rankings = self._milvus_search(
+            query=query,
+            top_k=top_k,
+            retrieval_method=retrieval_method,
+            hybrid_ranker=hybrid_ranker,
+            doc_to_chunk_multiplier=doc_to_chunk_multiplier,
+            hybrid_multiplier=hybrid_multiplier,
+        )
+        
+        # 2) Grab your global top-cited papers from your document_store
+        hot_ids = self._get_hot_paper_ids(top_k=top_k * hot_paper_multiplier)
+
+        # 3) Build the UNION of IDs
+        embed_ids = {doc_id for doc_id, _ in emb_rankings}
+        if add_hot_papers:
+            candidate_ids = list(embed_ids) + [i for i in hot_ids if i not in embed_ids]
+        else:
+            candidate_ids = list(embed_ids)
+
+        if use_citation_scoring:
+            # 4) For each candidate, fetch its embed score (0 if absent) and its normalized citation score
+            cit_scores = self._get_citation_scores(candidate_ids)
+            cit_score_map = {i: s for i, s in zip(candidate_ids, cit_scores)}
+
+            # map embed scores
+            emb_score_map = dict(emb_rankings)
+
+            # 5) Compute combined score
+            reranked = []
+            for doc_id in candidate_ids:
+                emb_score = emb_score_map.get(doc_id, 0.0)
+                cit_score = cit_score_map.get(doc_id, 0.0)
+                combined = cit_score_weight * cit_score + (1 - cit_score_weight) * emb_score
+                reranked.append((doc_id, combined, (emb_score, cit_score)))
+        else:
+            reranked = [(doc_id, score, None) for doc_id, score in emb_rankings]
+
+        # Sort by combined score, take top_k, and format output
+        reranked.sort(key=lambda x: x[1], reverse=True)
         results = []
-        for i, (doc_id, score) in enumerate(doc_rankings[:top_k]):
+        for i, (doc_id, scores, partial_scores) in enumerate(reranked[:top_k]):
             res = {'rank': i + 1, 'id': doc_id}
             if return_scores:
-                res['score'] = float(score)
+                res.update({'score': float(scores)})
+                if use_citation_scoring:
+                    res.update({'emb_score': float(partial_scores[0]),
+                                'cit_score': float(partial_scores[1])})
                 
             # Add document metadata if enabled
             if return_doc_metadata and self.store_documents and self.document_store is not None:
