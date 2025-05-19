@@ -126,7 +126,7 @@ class MilvusDocumentStore:
 
         # Connect to client and load index
         self._connect_client()
-        if not self._check_index_available():
+        if not self.check_index_available():
             raise ConnectionError("Cannot load store - Milvus collection is unavailable. " + \
                                   "Please restart the server and check that collection is available.")
         
@@ -154,7 +154,7 @@ class MilvusDocumentStore:
 
     def _connect_client(self) -> None:
         """Connect to Milvus client, with retry logic if the connection fails."""
-        if self.client is None or not self._check_index_available():
+        if self.client is None or not self.check_index_available():
             try:
                 self.client = MilvusClient(self.milvus_uri)
             except Exception as e:
@@ -173,7 +173,7 @@ class MilvusDocumentStore:
             finally:
                 self.client = None
 
-    def _check_index_available(self) -> bool:
+    def check_index_available(self) -> bool:
         """Check if the Milvus server is healthy and reachable. 
         Try a simple operation to check if server is responsive"""
 
@@ -331,7 +331,7 @@ class MilvusDocumentStore:
         doc_to_chunk_multiplier = 2
         hybrid_multiplier = 2
 
-        if not self._check_index_available():
+        if not self.check_index_available():
             raise ConnectionError("Cannot search - Milvus collection is unavailable. " + \
                                   "Please restart the server and check that collection is available.")
         

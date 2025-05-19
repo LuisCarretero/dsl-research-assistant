@@ -1,6 +1,6 @@
 .venv
 data/
-raw-data/
+data//
 db/
 *cache*
 __pycache__/

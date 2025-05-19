@@ -5,6 +5,9 @@ import argparse
 from typing import Optional, Literal
 from pathlib import Path
 import numpy as np
+import json
+import re
+import os
 
 
 from semantic_search.data_retrieval.utils import extract_abstract_from_md
@@ -15,50 +18,45 @@ from semantic_search.benchmarking.utils import calc_metric_at_topk
 
 
 def compute_prec_recall_metrics(
-    metadata_dirpath: str, 
+    benchmark_data: pd.DataFrame,
     store_name: str,
     store_dirpath: str,
-    results_dirpath: str,
-    experiment_name: Optional[str] = None,
     search_kwargs: dict = {},
-    first_n_papers: int = -1,
-    store_type: Literal['faiss', 'milvus'] = 'faiss'
-) -> None:
-    store_name = store_name.replace('/', '_')
-    if experiment_name is None:
-        print(f'No experiment name provided, using store name: {store_name}')
-        experiment_name = store_name
-
-    # Load paper and reference metadata
-    print('Loading data...')
-    df, ref_df = load_data(metadata_dirpath, filter_good_papers=True, filter_good_references=True)
-    df['abstract'] = df['fpath'].apply(extract_abstract_from_md)
-    df = df[df.abstract.apply(len) > 0]
-    df = df.iloc[:first_n_papers]
-
-    available_refs = set(ref_df['oaid'].str.lower().values)
-    df['GT_refs'] = df.refs_oaids_from_dois.apply(lambda refs: [ref for ref in refs if ref in available_refs])
-    df['available_ref_ratio'] = df.GT_refs.apply(len) / df.refs_oaids_from_dois.apply(len)
+    store_type: Literal['faiss', 'milvus'] = 'faiss',
+    max_top_k: int = 200
+) -> pd.DataFrame:
+    """
+    benchmark_data should have the following columns:
+        text: str
+        references: list of str
+    """
+    # Assert correct benchmark data format
+    assert all(col in benchmark_data.columns for col in ['text', 'references'])
+    assert isinstance(benchmark_data['references'].iloc[0], list) and isinstance(benchmark_data['references'].iloc[0][0], str)
+    assert isinstance(benchmark_data['text'].iloc[0], str)
 
     # Load document store
     print('Loading document store...')
     if store_type == 'faiss':
         ds = FAISSDocumentStore(db_superdir=store_dirpath, store_name=store_name)
+        assert ds.load_store() # Make sure store has been initialized
+        NotImplementedError('Implement available_refs for FAISS DS')
     elif store_type == 'milvus':
         ds = MilvusDocumentStore(db_superdir=store_dirpath, store_name=store_name)
-    assert ds.load_store() # Make sure store has been initialized
-    if store_type == 'milvus':
-        assert ds._check_index_available()
+        assert ds.load_store() # Make sure store has been initialized
+        assert ds.check_index_available()
+        available_refs = set([oaid.lower() for oaid in ds.document_store.id.tolist()])
 
+    # Only consider references we have indexed in document store
+    benchmark_data['GT_refs'] = benchmark_data['references'].apply(lambda refs: [ref for ref in refs if ref.lower() in available_refs])
+
+    # Predict references
+    print('Predicting references...')
+    ref_cnts = list(range(1, max_top_k + 1))
+    results = []
     try:
-        # Predict references
-        print('Predicting references...')
-        max_n_refs = 200
-        ref_cnts = list(range(1, max_n_refs + 1))
-        
-        results = []
-        for i, row in tqdm(df.iterrows(), total=len(df), desc='Predicting references'):
-            pred = predict_refs_from_abstract(ds, row['abstract'], max_n_refs=max_n_refs, search_kwargs=search_kwargs)
+        for _, row in tqdm(benchmark_data.iterrows(), total=len(benchmark_data), desc='Predicting references'):
+            pred = predict_refs_from_abstract(ds, row['text'], max_top_k=max_top_k, search_kwargs=search_kwargs)
             metrics = calc_metric_at_topk(row['GT_refs'], pred, ref_cnts)
             results.append(metrics)
         results_df = pd.DataFrame(results)
@@ -67,19 +65,82 @@ def compute_prec_recall_metrics(
         if store_type == 'milvus':
             ds._disconnect_client()
 
-    # Save results
+    return results_df
+
+
+def run_abstract_benchmark(
+    experiment_name: str,
+    store_name: str,
+    metadata_dirpath: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/data/metadata3',
+    results_dirpath: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/results',
+    store_dirpath: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/db',
+    first_n_queries: int = -1,
+    store_type: Literal['faiss', 'milvus'] = 'milvus',
+    search_kwargs: dict = {},
+    max_top_k: int = 200,
+):
+    # Load paper and reference metadata
+    print('Loading data...')
+    df, _ = load_data(metadata_dirpath, filter_good_papers=True, filter_good_references=True)
+    df['abstract'] = df['fpath'].apply(extract_abstract_from_md)
+    df = df[df.abstract.apply(len) > 0]
+    df = df.iloc[:first_n_queries]
+
+    df.rename(columns={'abstract': 'text', 'refs_oaids_from_dois': 'references'}, inplace=True)
+
+    results_df = compute_prec_recall_metrics(
+        benchmark_data=df,
+        store_name=store_name,
+        store_dirpath=store_dirpath,
+        store_type=store_type,
+        search_kwargs=search_kwargs,
+        max_top_k=max_top_k,
+    )
+
     Path(results_dirpath).mkdir(parents=True, exist_ok=True)
     results_df.to_csv(f'{results_dirpath}/results_{experiment_name}.csv', index=False)
+
+def run_related_work_benchmark(
+        experiment_name: str,
+        store_name: str,
+        metadata_dirpath: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/data/metadata3',
+        results_dirpath: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/results',
+        first_n_queries: int = -1,
+        store_dirpath: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/db',
+        store_type: Literal['faiss', 'milvus'] = 'milvus',
+        search_kwargs: dict = {},
+        max_top_k: int = 200,
+):  
+    def remove_intext_citations(text: str) -> str:
+    # Pattern matches brackets containing numbers separated by commas and optional spaces
+        pattern = r'\[\s*\d+(?:\s*,\s*\d+)*\s*\]'
+        return re.sub(pattern, '', text)
+    
+    with open(os.path.join(metadata_dirpath, 'related_work_data.json'), 'r') as f:
+        related_work_data = json.load(f)
+
+    benchmark_data = pd.DataFrame(related_work_data)
+    benchmark_data['sentence'] = benchmark_data['sentence'].apply(remove_intext_citations)
+    benchmark_data.rename(columns={'sentence': 'text', 'ref_oaids': 'references'}, inplace=True)
+    benchmark_data = benchmark_data.iloc[:first_n_queries]
+
+    results_df = compute_prec_recall_metrics(
+        benchmark_data=benchmark_data,
+        store_name=store_name,
+        store_dirpath=store_dirpath,
+        store_type=store_type,
+        search_kwargs=search_kwargs,
+        max_top_k=max_top_k,
+    )
+
+    Path(results_dirpath).mkdir(parents=True, exist_ok=True)
+    results_df.to_csv(f'{results_dirpath}/results_{experiment_name}.csv', index=False)
+
 
 def extract_prec_recall_curves(
     results_dirpath: str,
     experiment_name: str,
-    store_name: str = None
 ) -> None:
-    if experiment_name is None:
-        assert store_name is not None, 'No experiment name or store name provided'
-        print(f'No experiment name provided, using store name: {store_name}')
-        experiment_name = store_name
     df = pd.read_csv(f'{results_dirpath}/results_{experiment_name}.csv')
 
     # Calculate mean metrics across all samples
@@ -152,7 +213,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--store_name', type=str, required=True)
     parser.add_argument('--experiment_name', type=str, required=False)
-    parser.add_argument('--metadata_dirpath', type=str, default='/Users/luis/Desktop/ETH/Courses/SS25-DSL/raw-data/metadata3')
+    parser.add_argument('--benchmark_type', type=str, default='abstract', choices=['abstract', 'related_work'])
+    parser.add_argument('--do_plotting', type=bool, default=True)
+
+    parser.add_argument('--max_top_k', type=int, default=200)
+    parser.add_argument('--first_n_queries', type=int, default=-1)
+    parser.add_argument('--metadata_dirpath', type=str, default='/Users/luis/Desktop/ETH/Courses/SS25-DSL/data/metadata3')
     parser.add_argument('--store_dirpath', type=str, default='/Users/luis/Desktop/ETH/Courses/SS25-DSL/db')
     parser.add_argument('--results_dirpath', type=str, default='/Users/luis/Desktop/ETH/Courses/SS25-DSL/benchmark_results')
     parser.add_argument('--store_type', type=str, default='milvus', choices=['faiss', 'milvus'])
@@ -163,17 +229,41 @@ if __name__ == "__main__":
         'retrieval_method': args.retrieval_method
     }
 
-    compute_prec_recall_metrics(
-        metadata_dirpath=args.metadata_dirpath,
-        store_name=args.store_name,
-        store_dirpath=args.store_dirpath,
-        results_dirpath=args.results_dirpath,
-        experiment_name=args.experiment_name,
-        search_kwargs=search_kwargs,
-        store_type=args.store_type
-    )
-    extract_prec_recall_curves(
-        results_dirpath=args.results_dirpath,
-        experiment_name=args.experiment_name,
-        store_name=args.store_name
-    )
+    if args.benchmark_type == 'abstract':
+        run_abstract_benchmark(
+            store_name=args.store_name,
+            store_dirpath=args.store_dirpath,
+            metadata_dirpath=args.metadata_dirpath,
+            results_dirpath=args.results_dirpath,
+            experiment_name=args.experiment_name,
+
+            # Settings
+            search_kwargs=search_kwargs,
+            store_type=args.store_type,
+            max_top_k=args.max_top_k,
+            first_n_queries=args.first_n_queries
+        )
+    elif args.benchmark_type == 'related_work':
+        run_related_work_benchmark(
+            store_name=args.store_name,
+            store_dirpath=args.store_dirpath,
+            metadata_dirpath=args.metadata_dirpath,
+            results_dirpath=args.results_dirpath,
+            experiment_name=args.experiment_name,
+
+            # Settings
+            first_n_queries=args.first_n_queries,
+            store_type=args.store_type,
+            search_kwargs=search_kwargs,
+            max_top_k=args.max_top_k
+        )
+    if args.do_plotting:
+        extract_prec_recall_curves(
+            results_dirpath=args.results_dirpath,
+            experiment_name=args.experiment_name
+        )
+
+"""
+src % python -m semantic_search.benchmarking.benchmark_single --store_name=mini_gte --experiment_name=test1 --benchmark_type=abstract --first_n_queries=100
+src % python -m semantic_search.benchmarking.benchmark_single --store_name=mini_gte --experiment_name=related_work1 --benchmark_type=related_work --first_n_queries=1000 --max_top_k=30
+"""

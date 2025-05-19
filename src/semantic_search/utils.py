@@ -29,7 +29,7 @@ def load_data(
     filter_good_papers: bool = False,
     filter_good_references: bool = False,
     extract_abstract: bool = False,
-    paper_dirpath: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/raw-data/Conversions/opencvf-data/txt/'
+    paper_dirpath: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/data/Conversions/opencvf-data/txt/'
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     dirpath = Path(dirpath)
     ref_df = pd.read_csv(dirpath / 'refs.csv')
@@ -60,10 +60,10 @@ def load_data(
 def predict_refs_from_abstract(
     ds: FAISSDocumentStore, 
     abstract: str, 
-    max_n_refs: int = 10,
+    max_top_k: int = 10,
     search_kwargs: dict = {}
 ) -> List[str]:
-    doc_dicts = ds.search(abstract, top_k=max_n_refs, return_scores=True, return_doc_metadata=False, **search_kwargs)
+    doc_dicts = ds.search(abstract, top_k=max_top_k, return_scores=True, return_doc_metadata=False, **search_kwargs)
 
     # Docs are sorted by rank by default
     return [doc['id'] for doc in doc_dicts]

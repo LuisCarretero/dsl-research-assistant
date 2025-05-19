@@ -8,7 +8,7 @@ from semantic_search.utils import load_data
 def update_store_doc_metadata(
     store_name: str, 
     db_superdir: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/db', 
-    metadata_dirpath: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/raw-data/metadata3'
+    metadata_dirpath: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/data/metadata3'
 ):
     """
     Updates the store document data with new columns from the reference metadata .csv file at 

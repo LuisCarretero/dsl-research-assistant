@@ -6,7 +6,7 @@ from time import sleep
 import numpy as np
 
 df, ref_df = load_data(
-    '/Users/luis/Desktop/ETH/Courses/SS25-DSL/raw-data/metadata3',
+    '/Users/luis/Desktop/ETH/Courses/SS25-DSL/data/metadata3',
     filter_good_papers=True,
     filter_good_references=True
 )
