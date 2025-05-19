@@ -12,4 +12,4 @@ docker/
 *.sif
 notes/
 milvus-docker/volumes/
-.DS_Store
+.DS_Storesrc/semantic_search/data_retrieval/retrieve_paper_metadata.out
