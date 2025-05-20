@@ -50,5 +50,9 @@ class _BaseLiteratureReviewGenerator():
     Base class for generating literature reviews
     """
     @abc.abstractmethod
-    def predict(self, query:str, citations:list[str], **kwargs) -> str:
+    def predict_entire(self, query:str, references:list[str], reference_ids:list[int], **kwargs) -> str:
+        pass
+
+    @abc.abstractmethod
+    def predict_next(self, query:str, references:list[str], reference_ids:list[int], related_work_draft:str, **kwargs) -> str:
         pass

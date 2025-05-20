@@ -57,13 +57,33 @@ def create_suggestion_test_dataset():
         with open(fpath, "w") as out:
             json.dump(d, out)
 
+def extract_citation_order(paper_ref_dict:dict):
+    related_work = paper_ref_dict["related_work"]
+    citations = re.findall(r"\[[0-9, ]+\]", related_work)
+    in_text_ref_dict_order = []
+    for citation in citations:
+        temp = ast.literal_eval(citation)
+        in_text_ref_dict_order_i = []
+        for i in temp:
+            if int(i) in paper_ref_dict["rw_in_text_ref_nums"]:
+                in_text_ref_dict_order_i.append(int(i))
+        #in_text_ref_dict_order_i = [int(i) for i in in_text_ref_dict_order_i]
+        in_text_ref_dict_order.append(in_text_ref_dict_order_i)
+    return in_text_ref_dict_order
 
 if __name__ == "__main__":
+    import numpy as np
     #create_suggestion_test_dataset()
-    import pandas as pd
-
-    df = pd.read_csv("E:\\ETH MSc Data Science\\Data Science Lab\\Data\\reference_data\\new_orig.csv")
-    print(df.columns)
+    with open(os.path.join(DATA_DIR, "reference_data\\rw_dataset.json"), "r") as f:
+        data = json.load(f)
+    lengths = []
+    for data_point in data:
+        cit_order = extract_citation_order(data_point)
+        if len(cit_order) != 0:
+            lengths.append(len(cit_order))
+    print(f"Min length: {min(lengths)}")
+    print(f"Max length: {max(lengths)}")
+    print(f"Average length: {np.mean(lengths)}")
     """
     from dotenv import load_dotenv
     import os
