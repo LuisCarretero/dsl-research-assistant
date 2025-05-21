@@ -1,7 +1,7 @@
 import pandas as pd
 from pathlib import Path
 import re
-from typing import Dict, List, Any, Iterable, Callable, Tuple
+from typing import Dict, List, Any, Iterable, Callable, Tuple, Optional
 import pyalex
 from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
@@ -169,15 +169,40 @@ def count_references(row: pd.Series, df: pd.DataFrame) -> Tuple[int, int]:
     refs_in_dataset = sum(1 for ref in row['referenced_works'] if ref in dataset_oaids)
     return total_refs, refs_in_dataset
 
-def uninvert_abstract(inv_index: Dict[str, List[int]]) -> str:
+def uninvert_abstract(inv_index: Optional[Dict[str, List[int]]]) -> str:
+    if inv_index is None: return ''
+
     l_inv = [(w, p) for w, pos in inv_index.items() for p in pos]
     return ' '.join(map(lambda x: x[0], sorted(l_inv, key=lambda x: x[1])))
+
+def extract_authors(authorships: List[dict], max_n: int = 3) -> str:
+    if not authorships or len(authorships) == 0: return ''
+
+    raw = [author.get('author', {}).get('display_name') for author in authorships[:max_n*2]]
+    authors = [author_name for author_name in raw if author_name is not None][:max_n]
+    if len(authorships) > max_n:
+        authors.append('et al.')
+    return ', '.join(authors)
+
+def build_citation_str(authors: str, pub_date: str, title: str) -> str:
+    """
+    Build a citation string in APA style format.
+    """
+    # APA style: Author(s) (Year). Title.
+    return f"{authors} ({pub_date.split('-')[0]}). {title}"
+
+def extract_publisher(primary_location: dict) -> str:
+    if primary_location is None: return None
+    source = primary_location.get('source')
+    if source is None: return None
+    return source.get('display_name')
 
 def get_ref_metadata_oa(ref_ids: List[str], id_key: str = 'openalex_id', progress_bar: bool = False) -> np.ndarray:
     """
     Get metadata of interest for each reference work using OpenAlex API. Searches by OpenAlex ID.
     """
-    fields_of_interest = ['id', 'doi','abstract_inverted_index', 'title', 'type', 'topics', 'cited_by_count', 'citation_normalized_percentile']
+    fields_of_interest = ['id', 'doi','abstract_inverted_index', 'title', 'type', 'topics', 'cited_by_count', 'citation_normalized_percentile',
+                          'authorships', 'publication_date', 'primary_location']
 
     if len(ref_ids) == 0: return np.array([])
     if id_key == 'openalex_id':
@@ -196,16 +221,13 @@ def get_ref_metadata_oa(ref_ids: List[str], id_key: str = 'openalex_id', progres
         #     print(f"Warning: Only {len(raw)} out of {len(batch)} references found for batch {i}")
 
         for item in raw:
-            if item['abstract_inverted_index'] is not None:
-                abstract = uninvert_abstract(item['abstract_inverted_index'])
-            else:
-                abstract = ''
+            authors = extract_authors(item.get('authorships', []))
             res.append({
                 'oaid': item['id'].split('/')[-1] if item['id'] else None,
                 'doi': item['doi'].split('https://doi.org/')[-1] if item['doi'] else None,
                 'ref_via': id_key,
                 'title': item.get('title'),
-                'abstract': abstract, 
+                'abstract': uninvert_abstract(item.get('abstract_inverted_index')), 
                 'type': item.get('type'), 
                 'topic': item['topics'][0]['display_name'] if item['topics'] else None,
                 'domain': item['topics'][0]['domain']['display_name'] if item['topics'] else None,
@@ -214,7 +236,11 @@ def get_ref_metadata_oa(ref_ids: List[str], id_key: str = 'openalex_id', progres
                 'cited_by_count': item.get('cited_by_count'),
                 'citation_normalized_percentile': item['citation_normalized_percentile']['value'] if item['citation_normalized_percentile'] else None,
                 'is_in_top_1_percent': item['citation_normalized_percentile']['is_in_top_1_percent'] if item['citation_normalized_percentile'] else None,
-                'is_in_top_10_percent': item['citation_normalized_percentile']['is_in_top_10_percent'] if item['citation_normalized_percentile'] else None
+                'is_in_top_10_percent': item['citation_normalized_percentile']['is_in_top_10_percent'] if item['citation_normalized_percentile'] else None,
+                'authors': extract_authors(item['authorships']),
+                'pub_date': item.get('publication_date'),
+                'publisher': extract_publisher(item['primary_location']),
+                'cit_str': build_citation_str(authors, item.get('publication_date', ''), item.get('title', ''))
             })
     return np.array(res)
 

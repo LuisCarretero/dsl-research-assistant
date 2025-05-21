@@ -7,8 +7,8 @@ from semantic_search.data_retrieval.utils import collect_orig_paper_metadata, co
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--raw_dir', type=str, required=True)
-    parser.add_argument('--metadata_dir', type=str, required=True)
+    parser.add_argument('--raw_dir', type=str, default='/Users/luis/Desktop/ETH/Courses/SS25-DSL/data/Conversions/opencvf-data/txt')
+    parser.add_argument('--metadata_dir', type=str, default='/Users/luis/Desktop/ETH/Courses/SS25-DSL/data/metadata3')
     parser.add_argument('--max_papers', type=int, default=-1)
     parser.add_argument('--skip_orig_metadata_update', action='store_true')
     args = parser.parse_args()
@@ -38,3 +38,5 @@ if __name__ == '__main__':
         update_orig_ref_metadata(orig_output_fpath, refs_output_fpath)
     else:
         print(f"Not updating original paper metadata with reference metadata because it already exists at {orig_output_fpath}")
+
+# poetry run python -m semantic_search.data_retrieval.retrieve_paper_metadata --skip_orig_metadata_update
