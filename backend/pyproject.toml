@@ -19,16 +19,11 @@ matplotlib = "^3.10.3"
 pyalex = "^0.18"
 semanticscholar = "^0.10.0"
 transformers = "^4.51.3"
-torch = "^2.7.0"
 pyarrow = "^20.0.0"
 faiss-cpu = "^1.11.0"
 tqdm = "^4.67.1"
 scikit-learn = "^1.6.1"
 evaluate = "^0.4.3"
-torch = {version = "^2.5.1", source = "pytorch-cu121"}
-torchaudio = {version = "^2.5.1", source = "pytorch-cu121"}
-torchvision = {version = "^0.20.1", source = "pytorch-cu121"}
-docling = "^2.29.0"
 fastapi = "^0.115.12"
 uvicorn = "^0.34.2"
 python-multipart = "^0.0.20"
