@@ -46,12 +46,12 @@ def create_store(
             store_documents=store_documents,
         )
 
-    if not store.load_store(allow_fail=True):
+    if not store.load_store(allow_fail=True) or overwrite:
         _, ref_df = load_data(metadata_dirpath, filter_good_papers=True, filter_good_references=True)
         ref_df.rename(columns={'oaid': 'id', 'abstract': 'text'}, inplace=True)
         store.create_index_from_df(ref_df.iloc[:max_refs], overwrite=overwrite)
     else:
-        print(f'Store {store_name} already exists in {store_dirpath}.')
+        print(f'Store {store_name} already exists in {store_dirpath}. Set --overwrite to True to overwrite it.')
 
 
 if __name__ == "__main__":
@@ -64,14 +64,14 @@ if __name__ == "__main__":
     parser.add_argument('--store_name', type=str, default='main')
     parser.add_argument('--index_metric', type=str, default=None)
     parser.add_argument('--max_refs', type=int, default=-1)
-    parser.add_argument('--store_raw_embeddings', type=bool, default=False)
+    parser.add_argument('--store_raw_embeddings', type=bool, default=False, help='Whether to store raw embeddings in the store. Only relevant for FAISSStore.')
     parser.add_argument('--doc_store_columns', type=str, default=[], nargs='+', 
-                       help='List of columns to store in doc store')
+                       help='List of columns to store in doc store. Only relevant for FAISSStore.')
     parser.add_argument('--chunk_store_columns', type=str, default=[], nargs='+', 
-                       help='List of columns to store in chunk store')
+                       help='List of columns to store in chunk store. Only relevant for FAISSStore.')
     parser.add_argument('--store_type', type=str, default='faiss', choices=['faiss', 'milvus'])
-    parser.add_argument('--overwrite', type=bool, default=False)
-    parser.add_argument('--store_documents', type=bool, default=True)
+    parser.add_argument('--overwrite', action='store_true', default=False, help='Whether to overwrite the store if it already exists')
+    parser.add_argument('--store_documents', type=bool, default=True, help='Whether to store documents in the store. Only relevant for MilvusStore.')
 
     args = parser.parse_args()
 
@@ -90,4 +90,4 @@ if __name__ == "__main__":
         store_documents=args.store_documents,
     )
 
-# poetry run python -m semantic_search.store.create_store --store_type=milvus --store_name=mini1 --max_refs=100
+# poetry run python -m semantic_search.store.create_store --store_type=milvus --store_name=main --store_raw_embeddings=False --overwrite

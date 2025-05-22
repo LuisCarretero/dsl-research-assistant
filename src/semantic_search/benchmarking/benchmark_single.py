@@ -110,6 +110,7 @@ def run_related_work_benchmark(
         store_type: Literal['faiss', 'milvus'] = 'milvus',
         search_kwargs: dict = {},
         max_top_k: int = 200,
+        combine_sentences: bool = False,
 ):  
     def remove_intext_citations(text: str) -> str:
     # Pattern matches brackets containing numbers separated by commas and optional spaces
@@ -119,13 +120,20 @@ def run_related_work_benchmark(
     with open(os.path.join(metadata_dirpath, 'related_work_data.json'), 'r') as f:
         related_work_data = json.load(f)
 
-    benchmark_data = pd.DataFrame(related_work_data)
-    benchmark_data['sentence'] = benchmark_data['sentence'].apply(remove_intext_citations)
-    benchmark_data.rename(columns={'sentence': 'text', 'ref_oaids': 'references'}, inplace=True)
-    benchmark_data = benchmark_data.iloc[:first_n_queries]
+    df = pd.DataFrame(related_work_data)
+    df['sentence'] = df['sentence'].apply(remove_intext_citations)
+    df.rename(columns={'sentence': 'text', 'ref_oaids': 'references'}, inplace=True)
+
+    if combine_sentences:
+        df = df.groupby('paper_oaid').agg({
+            'text': ' '.join,
+            'references': lambda x: list(set(sum(x, [])))  # Flatten and get unique references
+        }).reset_index()
+
+    df = df.iloc[:first_n_queries]
 
     results_df = compute_prec_recall_metrics(
-        benchmark_data=benchmark_data,
+        benchmark_data=df,
         store_name=store_name,
         store_dirpath=store_dirpath,
         store_type=store_type,
@@ -214,6 +222,8 @@ if __name__ == "__main__":
     parser.add_argument('--store_name', type=str, required=True)
     parser.add_argument('--experiment_name', type=str, required=False)
     parser.add_argument('--benchmark_type', type=str, default='abstract', choices=['abstract', 'related_work'])
+    parser.add_argument('--combine_sentences', type=bool, default=False, \
+        help='Type of related work benchmark: Combine sentences from the same paper into a single query')
     parser.add_argument('--do_plotting', type=bool, default=True)
 
     parser.add_argument('--max_top_k', type=int, default=200)
@@ -227,7 +237,7 @@ if __name__ == "__main__":
     parser.add_argument('--use_citation_scoring', type=bool, default=True)
     parser.add_argument('--cit_score_weight', type=float, default=0.05)
     parser.add_argument('--hybrid_ranker_type', type=str, default='weighted', choices=['weighted', 'RFR'])
-    parser.add_argument('--hybrid_ranker_weights', type=str, default=[0.7, 0.3])
+    parser.add_argument('--hybrid_ranker_weights', type=str, default="[0.7,0.3]")
     parser.add_argument('--hybrid_ranker_k', type=int, default=60)
     args = parser.parse_args()
 
@@ -269,7 +279,8 @@ if __name__ == "__main__":
             first_n_queries=args.first_n_queries,
             store_type=args.store_type,
             search_kwargs=search_kwargs,
-            max_top_k=args.max_top_k
+            max_top_k=args.max_top_k,
+            combine_sentences=args.combine_sentences
         )
     if args.do_plotting:
         extract_prec_recall_curves(
@@ -280,4 +291,6 @@ if __name__ == "__main__":
 """
 src % python -m semantic_search.benchmarking.benchmark_single --store_name=mini_gte --experiment_name=mini_gte_citReranking --benchmark_type=abstract --first_n_queries=10 --retrieval_method=hybrid
 src % python -m semantic_search.benchmarking.benchmark_single --store_name=mini_gte --experiment_name=related_work1 --benchmark_type=related_work --first_n_queries=1000 --max_top_k=30
+
+src % python -m semantic_search.benchmarking.benchmark_single --store_name=mini_gte --experiment_name=related_work_combine --benchmark_type=related_work --first_n_queries=1000 --max_top_k=40 --combine_sentences=True
 """

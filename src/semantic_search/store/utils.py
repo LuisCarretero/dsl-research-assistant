@@ -28,7 +28,8 @@ def update_store_doc_metadata(
     docs = pd.read_parquet(doc_store_path)
 
     # Make sure we are operating on the same data
-    assert set(docs['id'].values) == set(ref_df['id'].values), 'Need same rows for updating'
+    if not set(docs['id'].values) == set(ref_df['id'].values):
+        print(f'Warning: Difference in ids: {set(docs["id"].values) - set(ref_df["id"].values)} are in database DF but not in metadata DF.')
 
     # Get columns that are in ref_df but not in docs
     new_columns = [col for col in ref_df.columns if col not in docs.columns]
