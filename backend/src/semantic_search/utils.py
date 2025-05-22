@@ -3,8 +3,8 @@ import numpy as np
 from pathlib import Path
 from typing import Tuple, List
 
-from semantic_search.data_retrieval.utils import parse_list_string, extract_abstract_from_md
-from semantic_search.store.faiss_store import FAISSDocumentStore
+from src.semantic_search.data_retrieval.utils import parse_list_string, extract_abstract_from_md
+from src.semantic_search.store.faiss_store import FAISSDocumentStore
 
 
 def get_good_papers_mask(df: pd.DataFrame) -> np.ndarray:

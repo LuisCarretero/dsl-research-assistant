@@ -2,10 +2,10 @@ import os
 import argparse
 from typing import Literal, List
 
-from semantic_search.store.faiss_store import FAISSDocumentStore
-from semantic_search.store.milvus_store import MilvusDocumentStore
-from semantic_search.store.models import create_embedding_model
-from semantic_search.utils import load_data
+from src.semantic_search.store.faiss_store import FAISSDocumentStore
+from src.semantic_search.store.milvus_store import MilvusDocumentStore
+from src.semantic_search.store.models import create_embedding_model
+from src.semantic_search.utils import load_data
 
 
 def create_store(
@@ -90,4 +90,4 @@ if __name__ == "__main__":
         store_documents=args.store_documents,
     )
 
-# poetry run python -m semantic_search.store.create_store --store_type=milvus --store_name=main --store_raw_embeddings=False --overwrite
+# poetry run python -m src.semantic_search.store.create_store --store_type=milvus --store_name=main --store_raw_embeddings=False --overwrite

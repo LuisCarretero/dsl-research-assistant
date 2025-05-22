@@ -10,11 +10,11 @@ import re
 import os
 
 
-from semantic_search.data_retrieval.utils import extract_abstract_from_md
-from semantic_search.store.faiss_store import FAISSDocumentStore
-from semantic_search.store.milvus_store import MilvusDocumentStore
-from semantic_search.utils import predict_refs_from_abstract, load_data
-from semantic_search.benchmarking.utils import calc_metric_at_topk
+from src.semantic_search.data_retrieval.utils import extract_abstract_from_md
+from src.semantic_search.store.faiss_store import FAISSDocumentStore
+from src.semantic_search.store.milvus_store import MilvusDocumentStore
+from src.semantic_search.utils import predict_refs_from_abstract, load_data
+from src.semantic_search.benchmarking.utils import calc_metric_at_topk
 
 
 def compute_prec_recall_metrics(
@@ -289,8 +289,8 @@ if __name__ == "__main__":
         )
 
 """
-src % python -m semantic_search.benchmarking.benchmark_single --store_name=mini_gte --experiment_name=mini_gte_citReranking --benchmark_type=abstract --first_n_queries=10 --retrieval_method=hybrid
-src % python -m semantic_search.benchmarking.benchmark_single --store_name=mini_gte --experiment_name=related_work1 --benchmark_type=related_work --first_n_queries=1000 --max_top_k=30
+src % python -m src.semantic_search.benchmarking.benchmark_single --store_name=mini_gte --experiment_name=mini_gte_citReranking --benchmark_type=abstract --first_n_queries=10 --retrieval_method=hybrid
+src % python -m src.semantic_search.benchmarking.benchmark_single --store_name=mini_gte --experiment_name=related_work1 --benchmark_type=related_work --first_n_queries=1000 --max_top_k=30
 
-src % python -m semantic_search.benchmarking.benchmark_single --store_name=mini_gte --experiment_name=related_work_combine --benchmark_type=related_work --first_n_queries=1000 --max_top_k=40 --combine_sentences=True
+src % python -m src.semantic_search.benchmarking.benchmark_single --store_name=mini_gte --experiment_name=related_work_combine --benchmark_type=related_work --first_n_queries=1000 --max_top_k=40 --combine_sentences=True
 """

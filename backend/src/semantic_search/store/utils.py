@@ -3,7 +3,7 @@ import json
 import pandas as pd
 from pymilvus import MilvusClient
 
-from semantic_search.utils import load_data
+from src.semantic_search.utils import load_data
 
 def update_store_doc_metadata(
     store_name: str, 

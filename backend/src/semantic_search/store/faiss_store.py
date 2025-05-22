@@ -9,7 +9,7 @@ import json
 from rank_bm25 import BM25Okapi
 import pickle
 
-from semantic_search.store.models import LocalEmbeddingModel
+from src.semantic_search.store.models import LocalEmbeddingModel
 
 
 class FAISSDocumentStore:

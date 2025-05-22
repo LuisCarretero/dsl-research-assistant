@@ -1,42 +1,36 @@
 from fastapi import APIRouter
 from src.api.models import TextRequest, CitationsResponse, Citation
-
+from src.semantic_search.store.milvus_store import MilvusDocumentStore
 
 router = APIRouter()
+ds = MilvusDocumentStore(db_superdir='/Users/luis/Desktop/ETH/Courses/SS25-DSL/dsl-research-assistant/db', store_name='main')
+ds.load_store()
+assert ds.check_index_available(), "Milvus index is not available."
 
 @router.post("/generate-citations/", response_model=CitationsResponse)
 async def generate_citations(request: TextRequest):
     """
     Generate citation recommendations based on the provided text.
     """
-    citations = [
-        Citation(
-            id=1,
-            title="Machine Learning: A Probabilistic Perspective",
-            author="Kevin P. Murphy",
-            year=2012,
-            publisher="MIT Press",
-            relevance=92,
-            citation="Murphy, K. P. (2012). Machine Learning: A Probabilistic Perspective. MIT Press."
-        ),
-        Citation(
-            id=2,
-            title="Deep Learning",
-            author="Ian Goodfellow, Yoshua Bengio, Aaron Courville",
-            year=2016,
-            publisher="MIT Press",
-            relevance=87,
-            citation="Goodfellow, I., Bengio, Y., & Courville, A. (2016). Deep Learning. MIT Press."
-        ),
-        Citation(
-            id=3,
-            title="Artificial Intelligence: A Modern Approach",
-            author="Stuart Russell, Peter Norvig",
-            year=2020,
-            publisher="Pearson",
-            relevance=78,
-            citation="Russell, S., & Norvig, P. (2020). Artificial Intelligence: A Modern Approach. Pearson."
+    query = request.text
+    results = ds.search(query, top_k=3, return_doc_metadata=True)
+
+
+    # Convert search results to Citation objects
+    citations = []
+    for i, result in enumerate(results):
+        # Create a citation object from each result
+        citation = Citation(
+            id=result.get('rank', ''),
+            title=result.get('title', ''),
+            author=result.get('authors', ''),
+            year=int(result.get('pub_date', '').split('-')[0]) if result.get('pub_date') else None,
+            publisher=result.get('publisher', ''),
+            relevance=int(result.get('score', 0) * 100),  # Convert score to percentage
+            citation=result.get('cit_str', '')
         )
-    ]
+        citations.append(citation)  
     
-    return CitationsResponse(citations=citations)
+    # Return early if we have results from the search
+    if citations:
+        return CitationsResponse(citations=citations)

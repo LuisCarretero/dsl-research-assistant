@@ -8,7 +8,7 @@ from collections import defaultdict
 from pymilvus import MilvusClient, DataType, Function, FunctionType, WeightedRanker, AnnSearchRequest, RRFRanker
 
 
-from semantic_search.store.faiss_store import LocalEmbeddingModel
+from src.semantic_search.store.faiss_store import LocalEmbeddingModel
 
 
 class MilvusDocumentStore:
@@ -347,12 +347,12 @@ class MilvusDocumentStore:
         # Load available data from directory
         self._verify_db_dir()
         if not self.store_documents:
-            raise ValueError("Cannot rebuild Milvus. Document store has not been stored. Activate store_documents=True during store building next time.")
+            raise ValueError("Cannot rebuild Milvus index as document store has not been stored. Activate store_documents=True during store building next time.")
         self.document_store = pd.read_parquet(self.doc_store_path)
 
         if not self.store_raw_embeddings:
             if not allow_embedding_calc:
-                raise ValueError("Cannot rebuild Milvus. Raw embeddings have not been stored. Set allow_embedding_calc=True to calculate embeddings from text.")
+                raise ValueError("Cannot rebuild Milvus index as raw embeddings have not been stored. Set allow_embedding_calc=True to calculate embeddings from text.")
         else:
             self.embeddings = np.load(self.embeddings_path)
 

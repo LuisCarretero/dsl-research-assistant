@@ -2,7 +2,7 @@ from pathlib import Path
 import argparse
 
 
-from semantic_search.data_retrieval.utils import collect_orig_paper_metadata, collect_ref_metadata, update_orig_ref_metadata
+from src.semantic_search.data_retrieval.utils import collect_orig_paper_metadata, collect_ref_metadata, update_orig_ref_metadata
 
 
 if __name__ == '__main__':
@@ -39,4 +39,4 @@ if __name__ == '__main__':
     else:
         print(f"Not updating original paper metadata with reference metadata because it already exists at {orig_output_fpath}")
 
-# poetry run python -m semantic_search.data_retrieval.retrieve_paper_metadata --skip_orig_metadata_update
+# poetry run python -m src.semantic_search.data_retrieval.retrieve_paper_metadata --skip_orig_metadata_update
