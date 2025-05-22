@@ -14,3 +14,4 @@ notes/
 milvus-docker/volumes/
 .DS_Store
 .vscode/
+*.lock
