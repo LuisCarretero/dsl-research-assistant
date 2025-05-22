@@ -9,3 +9,4 @@ image_captions
 .vscode/
 node_modules/
 .DS_Store
+*.lock
