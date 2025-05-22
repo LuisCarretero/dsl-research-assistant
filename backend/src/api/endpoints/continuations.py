@@ -82,10 +82,10 @@ async def generate_continuation(request: TextRequest):
             citation_nums = [int(i) for i in ast.literal_eval(citation_cleaned)]
             for i, cit_num in enumerate(citation_nums):
                 if cit_num >= 1 and cit_num <= len(unique_citations):
-                    citation_nums[i] = unique_citations[cit_num-1]
+                    citation_nums[i] = f"[{unique_citations[cit_num-1]}]"
                 else:
-                    citation_nums[i] = "LLM"
-            replacement_str = str(citation_nums)
+                    citation_nums[i] = "<LLM>"
+            replacement_str = " ".join(citation_nums)
         except:
             replacement_str = "<CITING_ERROR>"
         prediction = prediction.replace(citation, replacement_str)
