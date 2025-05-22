@@ -28,6 +28,7 @@ uvicorn = "^0.34.2"
 python-multipart = "^0.0.20"
 pydantic = "^2.11.4"
 docling-core = "^2.29.0"
+dotenv = "^0.9.9"
 
 [tool.poetry.group.dev.dependencies]
 ipykernel = "^6.29.5"
