@@ -11,7 +11,7 @@ benchmark_results/
 docker/
 *.sif
 notes/
-milvus-docker/volumes/
+backend/milvus-docker/volumes/
 .DS_Store
 .vscode/
 *.lock
@@ -20,5 +20,4 @@ image_captions
 *.jsonl
 .vscode/
 node_modules/
-.DS_Store
 *.lock
