@@ -129,7 +129,6 @@ class MilvusDocumentStore:
         if not self.check_index_available():
             raise ConnectionError("Cannot load store - Milvus collection is unavailable. " + \
                                   "Please restart the server and check that collection is available.")
-        
 
         # Load additional data
         self._verify_db_dir()
@@ -290,11 +289,26 @@ class MilvusDocumentStore:
             self.embeddings = embeddings
             np.save(self.embeddings_path, embeddings)
         
-        # Prepare data for insertion
+        # Insert data into Milvus index
+        self._ingest_data(chunks_flattened, embeddings, np.repeat(documents['id'].values, chunk_cnts).tolist())
+
+        # Save store
+        self.save_store()
+            
+        print(f"Indexed {len(documents)} documents in Milvus")
+
+    def _ingest_data(self, chunks_texts: list[str], chunk_embs: list[np.ndarray], doc_ids: list[str]) -> None:
+        """
+        Ingest data into Milvus.
+
+        Args:
+            chunks_texts: List of text chunks.
+            chunk_embs: List of embeddings for each chunk.
+            doc_ids: List of document ID for each chunk.
+        """
+
         data = []
-        for chunk_id, (chunk_text, chunk_emb, doc_id) in enumerate(zip(
-            chunks_flattened, embeddings, np.repeat(documents['id'].values, chunk_cnts).tolist()
-        )):
+        for chunk_id, (chunk_text, chunk_emb, doc_id) in enumerate(zip(chunks_texts, chunk_embs, doc_ids)):
             data.append({
                 "id": chunk_id,
                 "dense": chunk_emb.tolist(),
@@ -312,11 +326,65 @@ class MilvusDocumentStore:
         if data:
             print(f"Inserting final batch of {len(data)} chunks into Milvus...")
             self.client.insert(collection_name=self.store_name, data=data)
+    
+    def rebuild_index_from_dir(self, db_superdir: str, store_name: str, overwrite: bool = False, allow_embedding_calc: bool = False) -> None:
+        """
+        Rebuild Milvus collection from directory. Uses existing metadata file to load documents and embeddings. Ingests embeddings and tokenized text.
+        """
+        self._update_name_and_dir(db_superdir, store_name)
 
-        # Save store
-        self.save_store()
-            
-        print(f"Indexed {len(documents)} documents in Milvus")
+        # Load metadata
+        if not os.path.exists(self.metadata_path):
+            raise ValueError(f"Metadata file {self.metadata_path} does not exist.")
+        metadata = self._load_metadata()
+
+        # Initialize embedding model
+        if 'embedding_model' in metadata:
+            self.embedding_model = LocalEmbeddingModel(**metadata['embedding_model'])
+        else:
+            self.embedding_model = None
+
+        # Load available data from directory
+        self._verify_db_dir()
+        if not self.store_documents:
+            raise ValueError("Cannot rebuild Milvus. Document store has not been stored. Activate store_documents=True during store building next time.")
+        self.document_store = pd.read_parquet(self.doc_store_path)
+
+        if not self.store_raw_embeddings:
+            if not allow_embedding_calc:
+                raise ValueError("Cannot rebuild Milvus. Raw embeddings have not been stored. Set allow_embedding_calc=True to calculate embeddings from text.")
+        else:
+            self.embeddings = np.load(self.embeddings_path)
+
+        # Connect to client
+        self._connect_client()
+        if self.check_index_available():
+            if not overwrite:
+                raise ValueError(f"Collection {self.store_name} already exists. Set overwrite=True to overwrite.")
+            else:
+                print(f"Dropping existing collection {self.store_name}...")
+                self._drop_collection()
+
+        # Create collection
+        self._create_collection(overwrite=overwrite)
+
+        # Chunk and encode all documents at once
+        all_chunks_text, all_chunks_encoded = self.embedding_model.chunk_and_encode(self.document_store['text'].tolist(), progress_bar=True)
+        chunks_flattened = [item for sublist in all_chunks_text for item in sublist]
+        chunk_cnts = [len(chunk) for chunk in all_chunks_text]
+
+        if not self.store_raw_embeddings:
+            embeddings = self.embedding_model.get_embeddings(all_chunks_encoded, progress_bar=True)
+        else:
+            embeddings = self.embeddings
+
+        # Ingest data into Milvus index
+        self._ingest_data(chunks_flattened, embeddings, np.repeat(self.document_store['id'].values, chunk_cnts).tolist())
+
+        if not self.check_index_available():
+            raise ConnectionError("Rebuilding Milvus collection failed. ¯\_(ツ)_/¯")
+
+        print(f"Rebuilt Milvus collection from {self.db_dir}")
 
     def _get_citation_scores(self, doc_ids: list[str]) -> list[float]:
         if not self.store_documents:
