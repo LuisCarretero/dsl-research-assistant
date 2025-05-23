@@ -777,7 +777,189 @@ def predict_next_sentence_rw(data:dict, model:_BaseLiteratureReviewGenerator, mo
                 print(e)
                 continue
 
+
+def compute_prediction_rouge(data:dict, prediction_df:pd.DataFrame, save_dir:str=os.path.join(DATA_DIR, "reference_data/rw_data"), save_name:str="prediction_rouge_df.csv", recompute_computed:bool=False):
+    scorer = rouge_scorer.RougeScorer(["rouge1", "rouge2", "rougeL"])
+
+    prediction_df = prediction_df.copy()
+
+    # Make sure to add the Rouge columns
+    for rouge_type in scorer.rouge_types:
+        for metric_type in ["precision", "recall", "fmeasure"]:
+            c = f"rouge.{rouge_type}.{metric_type}"
+            if c not in prediction_df.columns:
+                prediction_df[c] = None
+
+    # Loop through the data
+    for paper in tqdm(data, "Predicting Rouge for papers..."):
+        paper_oaid = paper["paper_oaid"]
+        # Find the paper in the predictions
+        paper_prediction_rows = prediction_df.loc[prediction_df["paper_oaid"] == paper_oaid]
+        for i in paper_prediction_rows.index:
+            # Check if prediction exists, and if not, skip this
+            if not isinstance(paper_prediction_rows.loc[i, "prediction"], str):
+                continue
+            # Check if already computed
+            compute = True
+            if not recompute_computed:
+                metric_cols = []
+                for rouge_type in scorer.rouge_types:
+                    for metric_type in ["precision", "recall", "fmeasure"]:
+                        metric_cols.append(f"rouge.{rouge_type}.{metric_type}")
+                if not paper_prediction_rows.loc[i, metric_cols].isna().any():
+                    compute = False
+            # Compute the metric
+            if compute:
+                # Find the truth depending on the method
+                if paper_prediction_rows.loc[i, "type"] == "sentence":
+                    truth = paper["rw_next_sentence"]
+                elif paper_prediction_rows.loc[i, "type"] == "entire":
+                    truth = paper["related_work"]
+                else:
+                    continue
+                # Compute the Rouge
+                score = scorer.score(truth, paper_prediction_rows.loc[i, "prediction"])
+                for rouge_type in score.keys():
+                    prediction_df.loc[i, f"rouge.{rouge_type}.precision"] = score[rouge_type].precision
+                    prediction_df.loc[i, f"rouge.{rouge_type}.recall"] = score[rouge_type].recall
+                    prediction_df.loc[i, f"rouge.{rouge_type}.fmeasure"] = score[rouge_type].fmeasure
+    prediction_df.to_csv(os.path.join(save_dir, save_name), index=False)
+    return prediction_df
+
+
+def compute_prediction_bertscore(data:dict, prediction_df:pd.DataFrame, save_dir:str=os.path.join(DATA_DIR, "reference_data/rw_data"), save_name:str="prediction_bertscore_df.csv", recompute_computed:bool=False):
+    scorer = load("bertscore")
+
+    prediction_df = prediction_df.copy()
+
+    # Make sure to add the Bertscore columns
+    for metric_type in ["precision", "recall", "f1"]:
+        c = f"bertscore.{metric_type}"
+        if c not in prediction_df.columns:
+            prediction_df[c] = None
+
+    # Loop through the data
+    for paper in tqdm(data, "Predicting BertScore for papers..."):
+        paper_oaid = paper["paper_oaid"]
+        # Find the paper in the predictions
+        paper_prediction_rows = prediction_df.loc[prediction_df["paper_oaid"] == paper_oaid]
+        for i in paper_prediction_rows.index:
+            # Check if prediction exists, and if not, skip this
+            if not isinstance(paper_prediction_rows.loc[i, "prediction"], str):
+                continue
+            # Check if already computed
+            compute = True
+            if not recompute_computed:
+                metric_cols = []
+                for metric_type in ["precision", "recall", "f1"]:
+                    metric_cols.append(f"bertscore.{metric_type}")
+                if not paper_prediction_rows.loc[i, metric_cols].isna().any():
+                    compute = False
+            # Compute the metric
+            if compute:
+                # Find the truth depending on the method
+                if paper_prediction_rows.loc[i, "type"] == "sentence":
+                    truth = paper["rw_next_sentence"]
+                elif paper_prediction_rows.loc[i, "type"] == "entire":
+                    truth = paper["related_work"]
+                else:
+                    continue
+                # Compute the BertScore
+                score = scorer.compute(predictions=[paper_prediction_rows.loc[i, "prediction"]], references=[truth], lang="en")
+                for metric_type in score.keys():
+                    prediction_df.loc[i, f"bertscore.{metric_type}"] = score[metric_type][0]
+    prediction_df.to_csv(os.path.join(save_dir, save_name), index=False)
+    return prediction_df
+
+
+def compute_prediction_p_reference(data:dict, prediction_df:pd.DataFrame, save_dir:str=os.path.join(DATA_DIR, "reference_data/rw_data"), save_name:str="prediction_p_reference_df.csv", recompute_computed:bool=False):
+    prediction_df = prediction_df.copy()
+
+    """
+    p_correct: % of the true references that are included (best case 1.0)
+    p_incorrect: % of made up references that are included (best case 0.0)
+    """
+
+    # Make sure to add the Bertscore columns
+    metric_types = ["p_correct", "p_incorrect"]
+    for metric_type in metric_types:
+        c = f"p_refernece.{metric_type}"
+        if c not in prediction_df.columns:
+            prediction_df[c] = None
+
+    # Loop through the data
+    for paper in tqdm(data, "Predicting p reference for papers..."):
+        paper_oaid = paper["paper_oaid"]
+        # Find the paper in the predictions
+        paper_prediction_rows = prediction_df.loc[prediction_df["paper_oaid"] == paper_oaid]
+        for i in paper_prediction_rows.index:
+            # Check if prediction exists, and if not, skip this
+            if not isinstance(paper_prediction_rows.loc[i, "prediction"], str):
+                continue
+            # Check if already computed
+            compute = True
+            if not recompute_computed:
+                metric_cols = []
+                for metric_type in metric_types:
+                    metric_cols.append(f"bertscore.{metric_type}")
+                if not paper_prediction_rows.loc[i, metric_cols].isna().any():
+                    compute = False
+            # Compute the metric
+            if compute:
+                # Extract the predicted reference numbers
+                prediction = extract_reference_numbers(paper_prediction_rows.loc[i, "prediction"])
+                # Find the truth depending on the method
+                if paper_prediction_rows.loc[i, "type"] == "sentence":
+                    truth = paper["rw_next_in_text_ref_nums"]
+                    truth_previous_temp = extract_reference_numbers(paper["rw_draft"])
+                    truth_previous = []
+                    for ref in truth_previous_temp:
+                        if ref not in truth:
+                            truth_previous.append(ref)
+                elif paper_prediction_rows.loc[i, "type"] == "entire":
+                    truth = paper["rw_in_text_ref_nums"]
+                    truth_previous = []
+                else:
+                    continue
+                # Compute the p refernece
+                prediction_correct = []
+                prediction_incorrect = []
+                prediction_previous = []
+                for ref in prediction:
+                    if ref in truth:
+                        prediction_correct.append(ref)
+                    else:
+                        prediction_incorrect.append(ref)
+                        if ref in truth_previous:
+                            prediction_previous.append(ref)
+                prediction_df.loc[i, "p_reference.p_correct_predictions"] = len(prediction_correct)/len(prediction) 
+                prediction_df.loc[i, "p_reference.p_predicted_truths"] = len(prediction_correct)/len(truth)
+                prediction_df.loc[i, "p_reference.p_previous_predictions_incorrect_predictions"] = len(prediction_previous)/len(prediction_incorrect)
+    prediction_df.to_csv(os.path.join(save_dir, save_name), index=False)
+    return prediction_df
+
 #create_related_work_dataset()
+
+def extract_reference_numbers(text:str):
+    ref_nums = set()
+    ref_list_strings = re.findall(r"\[[0-9, -]+\]", text)
+    for ref_list_string in ref_list_strings:
+        # Check for range references
+        range_refs = re.findall(r"[0-9]+-[0-9]+", ref_list_string)
+        ref_list_string_cleaned = ref_list_string
+        for range_ref in range_refs:
+            a = int(range_ref[:range_ref.find("-")])
+            b = int(range_ref[range_ref.find("-")+1:])
+            ref_list_string_cleaned.replace(range_ref, ", ".join([i for i in range(a, b+1)]))
+        # Try evaluating the list
+        try:
+            ref_list = [int(i) for i in ast.literal_eval(ref_list_string_cleaned)]
+            for ref in ref_list:
+                ref_nums.add(ref)
+        except:
+            continue
+    return list(ref_nums)
+
 
 """
 with open(os.path.join(DATA_DIR, "reference_data\\rw_dataset.json"), "r") as f:
@@ -801,6 +983,8 @@ if __name__ == "__main__":
     #ref_df = create_reference_dataframe()
     #paper_df = create_paper_dataframe()
     #paper_rw_ref_df = create_paper_reference_connection_dataframe(references_df=ref_df, paper_df=paper_df)
+    prediction_df = pd.read_csv(os.path.join(DATA_DIR, "reference_data/rw_data/prediction_df.csv"))
+    print(prediction_df[prediction_df["prediction"].isna()])
 
     # Load the datasets
     ref_df = pd.read_csv(os.path.join(DATA_DIR, "reference_data/rw_data/ref_df.csv"))
@@ -830,41 +1014,43 @@ if __name__ == "__main__":
     llama_31_405B_instruct_inference_model.set_default_call_kwargs(model="meta-llama/Llama-3.1-405B-Instruct")
 
     models = [
-        {
-            "model": LitLLMLiteratureReviewGenerator(llama_31_8B_instruct_inference_model),
-            "model_name": "llama-3.1-instruct:8B"
-        },
+        #{
+        #    "model": LitLLMLiteratureReviewGenerator(llama_31_8B_instruct_inference_model),
+        #    "model_name": "llama-3.1-instruct:8B"
+        #},
 
         {
             "model": LitLLMLiteratureReviewGenerator(llama_31_70B_instruct_inference_model),
             "model_name": "llama-3.1-instruct:70B"
         },
 
-        {
-            "model": LitLLMLiteratureReviewGenerator(llama_31_405B_instruct_inference_model),
-            "model_name": "llama-3.1-instruct:405B"
-        },
+        #{
+        #    "model": LitLLMLiteratureReviewGenerator(llama_31_405B_instruct_inference_model),
+        #    "model_name": "llama-3.1-instruct:405B"
+        #},
 
-        {
-            "model": LexRankLiteratureReviewGenerator(),
-            "model_name": "lexrank"
-        }
+        #{
+        #    "model": LexRankLiteratureReviewGenerator(),
+        #    "model_name": "lexrank"
+        #}
     ]
 
     # Predict the next sentence in the related work
-    for model in models:
-        predict_next_sentence_rw(
-            data,
-            model["model"],
-            model["model_name"]
-        )
+    #for model in models:
+    #    predict_next_sentence_rw(
+    #        data,
+    #        model["model"],
+    #        model["model_name"]
+    #    )
     # Predict the entire related work
-    for model in models:
-        predict_entire_rw(
-            data,
-            model["model"],
-            model["model_name"]
-        )
+    #for model in models:
+    #    predict_entire_rw(
+    #        data,
+    #        model["model"],
+    #        model["model_name"]
+    #    )
+    
+    compute_prediction_bertscore(data, prediction_df)
 
     #create_related_work_dataset()
     #pprint.pprint(data[0])
