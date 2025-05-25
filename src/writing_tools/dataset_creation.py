@@ -876,19 +876,26 @@ def compute_prediction_p_reference(data:dict, prediction_df:pd.DataFrame, save_d
     prediction_df = prediction_df.copy()
 
     """
-    p_correct: % of the true references that are included (best case 1.0)
-    p_incorrect: % of made up references that are included (best case 0.0)
+    tp - true predicted references
+    fp - false predicted references
+    t - true references
+    p - all predicted references
+    pfp - false predicted reference that exist in prior text
+
+    p_tp_p: percentage of predicted references that are true
+    p_tp_t: percentage of true references that were predicted
+    p_pfp_fp: percentage of false predicted references that exist in prior text
     """
 
-    # Make sure to add the Bertscore columns
-    metric_types = ["p_correct", "p_incorrect"]
+    # Make sure to add the predicted reference percentages columns
+    metric_types = ["p_tp_p", "p_tp_t", "p_pfp_fp"]
     for metric_type in metric_types:
-        c = f"p_refernece.{metric_type}"
+        c = f"p_reference.{metric_type}"
         if c not in prediction_df.columns:
             prediction_df[c] = None
 
     # Loop through the data
-    for paper in tqdm(data, "Predicting p reference for papers..."):
+    for paper in tqdm(data, "Predicting predicted reference percentages for papers..."):
         paper_oaid = paper["paper_oaid"]
         # Find the paper in the predictions
         paper_prediction_rows = prediction_df.loc[prediction_df["paper_oaid"] == paper_oaid]
@@ -901,7 +908,7 @@ def compute_prediction_p_reference(data:dict, prediction_df:pd.DataFrame, save_d
             if not recompute_computed:
                 metric_cols = []
                 for metric_type in metric_types:
-                    metric_cols.append(f"bertscore.{metric_type}")
+                    metric_cols.append(f"p_reference.{metric_type}")
                 if not paper_prediction_rows.loc[i, metric_cols].isna().any():
                     compute = False
             # Compute the metric
@@ -932,16 +939,18 @@ def compute_prediction_p_reference(data:dict, prediction_df:pd.DataFrame, save_d
                         prediction_incorrect.append(ref)
                         if ref in truth_previous:
                             prediction_previous.append(ref)
-                prediction_df.loc[i, "p_reference.p_correct_predictions"] = len(prediction_correct)/len(prediction) 
-                prediction_df.loc[i, "p_reference.p_predicted_truths"] = len(prediction_correct)/len(truth)
-                prediction_df.loc[i, "p_reference.p_previous_predictions_incorrect_predictions"] = len(prediction_previous)/len(prediction_incorrect)
+                prediction_df.loc[i, "p_reference.p_tp_p"] = len(prediction_correct)/len(prediction) if len(prediction) > 0 else None
+                prediction_df.loc[i, "p_reference.p_tp_t"] = len(prediction_correct)/len(truth)
+                prediction_df.loc[i, "p_reference.p_pfp_fp"] = len(prediction_previous)/len(prediction_incorrect) if len(prediction_incorrect) > 0 else None
+                prediction_df.loc[i, "p_reference.n_p"] = len(prediction)
+                prediction_df.loc[i, "p_reference.n_t"] = len(truth)
     prediction_df.to_csv(os.path.join(save_dir, save_name), index=False)
     return prediction_df
 
-#create_related_work_dataset()
 
 def extract_reference_numbers(text:str):
     ref_nums = set()
+    # Find anything that might be a reference
     ref_list_strings = re.findall(r"\[[0-9, -]+\]", text)
     for ref_list_string in ref_list_strings:
         # Check for range references
@@ -950,41 +959,24 @@ def extract_reference_numbers(text:str):
         for range_ref in range_refs:
             a = int(range_ref[:range_ref.find("-")])
             b = int(range_ref[range_ref.find("-")+1:])
-            ref_list_string_cleaned.replace(range_ref, ", ".join([i for i in range(a, b+1)]))
+            ref_list_string_cleaned.replace(range_ref, ", ".join([str(i) for i in range(a, b+1)]))
         # Try evaluating the list
         try:
-            ref_list = [int(i) for i in ast.literal_eval(ref_list_string_cleaned)]
+            ref_list = ast.literal_eval(ref_list_string_cleaned)
             for ref in ref_list:
-                ref_nums.add(ref)
+                # Skip the ones that are not valid
+                try:
+                    ref = int(ref)
+                    ref_nums.add(ref)
+                except:
+                    continue
         except:
             continue
     return list(ref_nums)
 
 
-"""
-with open(os.path.join(DATA_DIR, "reference_data\\rw_dataset.json"), "r") as f:
-    data = json.load(f)
-
-print(f"The dataset has {len(data)} samples")
-print("---------------------")
-print(f"Example: {data[0]['title']}")
-print("---------------------")
-print(data[0]["abstract"])
-print("---------------------")
-print(data[0]["related_work"])
-print("---------------------")
-print(extract_citation_order(data[0]))
-"""
-
 if __name__ == "__main__":
     HF_TOKEN = os.environ.get("HF_TOKEN") # Fetch the Hugging Face token
-
-    # Creating the datasets
-    #ref_df = create_reference_dataframe()
-    #paper_df = create_paper_dataframe()
-    #paper_rw_ref_df = create_paper_reference_connection_dataframe(references_df=ref_df, paper_df=paper_df)
-    prediction_df = pd.read_csv(os.path.join(DATA_DIR, "reference_data/rw_data/prediction_df.csv"))
-    print(prediction_df[prediction_df["prediction"].isna()])
 
     # Load the datasets
     ref_df = pd.read_csv(os.path.join(DATA_DIR, "reference_data/rw_data/ref_df.csv"))
@@ -1014,25 +1006,25 @@ if __name__ == "__main__":
     llama_31_405B_instruct_inference_model.set_default_call_kwargs(model="meta-llama/Llama-3.1-405B-Instruct")
 
     models = [
-        #{
-        #    "model": LitLLMLiteratureReviewGenerator(llama_31_8B_instruct_inference_model),
-        #    "model_name": "llama-3.1-instruct:8B"
-        #},
+        {
+            "model": LitLLMLiteratureReviewGenerator(llama_31_8B_instruct_inference_model),
+            "model_name": "llama-3.1-instruct:8B"
+        },
 
         {
             "model": LitLLMLiteratureReviewGenerator(llama_31_70B_instruct_inference_model),
             "model_name": "llama-3.1-instruct:70B"
         },
 
-        #{
-        #    "model": LitLLMLiteratureReviewGenerator(llama_31_405B_instruct_inference_model),
-        #    "model_name": "llama-3.1-instruct:405B"
-        #},
+        {
+            "model": LitLLMLiteratureReviewGenerator(llama_31_405B_instruct_inference_model),
+            "model_name": "llama-3.1-instruct:405B"
+        },
 
-        #{
-        #    "model": LexRankLiteratureReviewGenerator(),
-        #    "model_name": "lexrank"
-        #}
+        {
+            "model": LexRankLiteratureReviewGenerator(),
+            "model_name": "lexrank"
+        }
     ]
 
     # Predict the next sentence in the related work
@@ -1050,44 +1042,15 @@ if __name__ == "__main__":
     #        model["model_name"]
     #    )
     
-    compute_prediction_bertscore(data, prediction_df)
+    # Compute the scores
+    prediction_df = pd.read_csv(os.path.join(DATA_DIR, "reference_data/rw_data/prediction_df.csv"))
 
-    #create_related_work_dataset()
-    #pprint.pprint(data[0])
+    #compute_prediction_rouge(data, prediction_df)
+    #compute_prediction_bertscore(data, prediction_df)
+    compute_prediction_p_reference(data, prediction_df)
 
-    #compute_literature_review_metric(data, metrics=["p_reference"], recompute_computed=True)
-
-    #paper_df = create_paper_dataframe()
-    #print(len(paper_df))
-    #print(paper_df.head())
-    #paper_rw_ref_df = create_paper_reference_connection_dataframe()
-    #print(len(paper_rw_ref_df))
-    #print(paper_rw_ref_df.head())
-    #ref_df = create_reference_dataframe()
-    #counts = ref_df["title"].value_counts(sort=True, ascending=False)
-    #print(len(ref_df))
-    #print(counts[counts > 1])
-    #data = create_luis_sentence_dataset()
-    #print(len(data))
-    #pprint.pprint(data[0])
-
-    #with open(os.path.join(DATA_DIR, "reference_data\\rw_dataset.json"), "r") as f:
-    #    data = json.load(f)
-
-    #def deepseek_r1_postprocess(out:str):
-    #    thoughts = re.findall(r"<think>[\S\s]*</think>", out)
-    #    for thought in thoughts:
-    #        out = out.replace(thought, "")
-    #    #print(thoughts)
-    #    return out
-
-    #deepseek_inference_model = HFClientInferenceModel(
-    #    provider = "novita",
-    #    api_key = HF_TOKEN
-    #)
-    #deepseek_inference_model.set_default_call_kwargs(model="deepseek-ai/DeepSeek-R1")
-    #deepseek_inference_model.postprocess_output = deepseek_r1_postprocess
-
+    # Dataset analysis
+    """
     paper_rw_ref_df = pd.read_csv(os.path.join(DATA_DIR, "reference_data/rw_data/paper_rw_ref_df.csv"))
     paper_rw_ref_df_grouped = paper_rw_ref_df.groupby(["paper_oaid", "ref_oaid"]).count().reset_index()
     print(paper_rw_ref_df_grouped.head())
@@ -1128,7 +1091,6 @@ if __name__ == "__main__":
 
     #paper_counts_df = paper_counts_df[paper_counts_df["true_count"] > 0]
 
-
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(2, 3)
@@ -1139,11 +1101,4 @@ if __name__ == "__main__":
     ax[0, 2].boxplot(paper_counts_df["p"])
     ax[1, 2].hist(paper_counts_df["p"])
     plt.show()
-    #compute_average_metrics()
-
-    #for model in models:
-    #    predict_related_work_for_data(
-    #        data,
-    #        model["model"],
-    #        model["model_name"]
-    #    )
+    """
