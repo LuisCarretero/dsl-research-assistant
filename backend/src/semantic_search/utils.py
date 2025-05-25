@@ -29,7 +29,7 @@ def load_data(
     filter_good_papers: bool = False,
     filter_good_references: bool = False,
     extract_abstract: bool = False,
-    paper_dirpath: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/data/Conversions/opencvf-data/txt/'
+    paper_dirpath: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/dsl-research-assistant/data/Conversions/opencvf-data/txt/'
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     dirpath = Path(dirpath)
     ref_df = pd.read_csv(dirpath / 'refs.csv')

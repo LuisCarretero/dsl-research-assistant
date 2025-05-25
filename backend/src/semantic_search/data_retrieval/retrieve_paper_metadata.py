@@ -7,8 +7,8 @@ from src.semantic_search.data_retrieval.utils import collect_orig_paper_metadata
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--raw_dir', type=str, default='/Users/luis/Desktop/ETH/Courses/SS25-DSL/data/Conversions/opencvf-data/txt')
-    parser.add_argument('--metadata_dir', type=str, default='/Users/luis/Desktop/ETH/Courses/SS25-DSL/data/metadata3')
+    parser.add_argument('--raw_dir', type=str, default='/Users/luis/Desktop/ETH/Courses/SS25-DSL/dsl-research-assistant/data/Conversions/opencvf-data/txt')
+    parser.add_argument('--metadata_dir', type=str, default='/Users/luis/Desktop/ETH/Courses/SS25-DSL/dsl-research-assistant/data/metadata3')
     parser.add_argument('--max_papers', type=int, default=-1)
     parser.add_argument('--skip_orig_metadata_update', action='store_true')
     args = parser.parse_args()

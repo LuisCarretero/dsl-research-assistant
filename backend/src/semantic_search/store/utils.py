@@ -7,8 +7,8 @@ from src.semantic_search.utils import load_data
 
 def update_store_doc_metadata(
     store_name: str, 
-    db_superdir: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/db', 
-    metadata_dirpath: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/data/metadata3'
+    db_superdir: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/dsl-research-assistant/db', 
+    metadata_dirpath: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/dsl-research-assistant/data/metadata3'
 ):
     """
     Updates the store document data with new columns from the reference metadata .csv file at 
@@ -52,7 +52,7 @@ def get_orphaned_milvus_collections(db_superdir: str, milvus_uri: str = 'http://
         from pymilvus import MilvusClient
         
         client = MilvusClient()
-        for coll_name in get_orphaned_milvus_collections(db_superdir='/Users/luis/Desktop/ETH/Courses/SS25-DSL/db', print_collections=False):
+        for coll_name in get_orphaned_milvus_collections(db_superdir='/Users/luis/Desktop/ETH/Courses/SS25-DSL/dsl-research-assistant/db', print_collections=False):
             client.drop_collection(coll_name)
 
     """

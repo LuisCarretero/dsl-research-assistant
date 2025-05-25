@@ -71,9 +71,9 @@ def compute_prec_recall_metrics(
 def run_abstract_benchmark(
     experiment_name: str,
     store_name: str,
-    metadata_dirpath: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/data/metadata3',
-    results_dirpath: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/results',
-    store_dirpath: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/db',
+    metadata_dirpath: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/dsl-research-assistant/data/metadata3',
+    results_dirpath: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/dsl-research-assistant/results',
+    store_dirpath: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/dsl-research-assistant/db',
     first_n_queries: int = -1,
     store_type: Literal['faiss', 'milvus'] = 'milvus',
     search_kwargs: dict = {},
@@ -103,10 +103,10 @@ def run_abstract_benchmark(
 def run_related_work_benchmark(
         experiment_name: str,
         store_name: str,
-        metadata_dirpath: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/data/metadata3',
-        results_dirpath: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/results',
+        metadata_dirpath: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/dsl-research-assistant/data/metadata3',
+        results_dirpath: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/dsl-research-assistant/results',
         first_n_queries: int = -1,
-        store_dirpath: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/db',
+        store_dirpath: str = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/dsl-research-assistant/db',
         store_type: Literal['faiss', 'milvus'] = 'milvus',
         search_kwargs: dict = {},
         max_top_k: int = 200,
@@ -228,8 +228,8 @@ if __name__ == "__main__":
 
     parser.add_argument('--max_top_k', type=int, default=200)
     parser.add_argument('--first_n_queries', type=int, default=-1)
-    parser.add_argument('--metadata_dirpath', type=str, default='/Users/luis/Desktop/ETH/Courses/SS25-DSL/data/metadata3')
-    parser.add_argument('--store_dirpath', type=str, default='/Users/luis/Desktop/ETH/Courses/SS25-DSL/db')
+    parser.add_argument('--metadata_dirpath', type=str, default='/Users/luis/Desktop/ETH/Courses/SS25-DSL/dsl-research-assistant/data/metadata3')
+    parser.add_argument('--store_dirpath', type=str, default='/Users/luis/Desktop/ETH/Courses/SS25-DSL/dsl-research-assistant/db')
     parser.add_argument('--results_dirpath', type=str, default='/Users/luis/Desktop/ETH/Courses/SS25-DSL/benchmark_results')
     parser.add_argument('--store_type', type=str, default='milvus', choices=['faiss', 'milvus'])
     parser.add_argument('--retrieval_method', type=str, default='hybrid', choices=['hybrid', 'embedding', 'keyword'])

@@ -19,8 +19,8 @@ echo ":- Current directory: $(pwd)"
 echo ":- Running script: -m src.semantic_search.data_retrieval.retrieve_paper_metadata"
 
 python -m src.semantic_search.data_retrieval.retrieve_paper_metadata \
-    --raw_dir /Users/luis/Desktop/ETH/Courses/SS25-DSL/data/Conversions/opencvf-data/txt \
-    --metadata_dir /Users/luis/Desktop/ETH/Courses/SS25-DSL/data/metadata3 \
+    --raw_dir /Users/luis/Desktop/ETH/Courses/SS25-DSL/dsl-research-assistant/data/Conversions/opencvf-data/txt \
+    --metadata_dir /Users/luis/Desktop/ETH/Courses/SS25-DSL/dsl-research-assistant/data/metadata3 \
     --max_papers -1
 
 echo ":- Preprocessing job completed."

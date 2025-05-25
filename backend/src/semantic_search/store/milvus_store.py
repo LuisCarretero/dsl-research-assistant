@@ -256,7 +256,7 @@ class MilvusDocumentStore:
             index_params=index_params
         )
 
-    def _check_store_exists(self) -> bool:
+    def check_store_exists(self) -> bool:
         """Check if the store exists using metadata file in directory."""
         return os.path.exists(self.metadata_path)
         
@@ -264,7 +264,7 @@ class MilvusDocumentStore:
         """Create new Milvus collection and index documents."""
         self._update_name_and_dir(db_superdir, store_name)
 
-        if not overwrite and self._check_store_exists():
+        if not overwrite and self.check_store_exists():
             raise ValueError(f"Store {self.store_name} already exists. Set overwrite=True to overwrite.")
 
         # Initialize client

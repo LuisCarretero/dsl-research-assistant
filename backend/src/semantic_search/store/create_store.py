@@ -46,7 +46,7 @@ def create_store(
             store_documents=store_documents,
         )
 
-    if not store.load_store(allow_fail=True) or overwrite:
+    if not (store.check_store_exists() and store.check_index_available()) or overwrite:
         _, ref_df = load_data(metadata_dirpath, filter_good_papers=True, filter_good_references=True)
         ref_df.rename(columns={'oaid': 'id', 'abstract': 'text'}, inplace=True)
         store.create_index_from_df(ref_df.iloc[:max_refs], overwrite=overwrite)
@@ -90,4 +90,4 @@ if __name__ == "__main__":
         store_documents=args.store_documents,
     )
 
-# poetry run python -m src.semantic_search.store.create_store --store_type=milvus --store_name=main --store_raw_embeddings=true --store_documents=True --overwrite
+# poetry run python -m src.semantic_search.store.create_store --store_type=milvus --store_name=main --store_raw_embeddings=True --store_documents=True --overwrite
