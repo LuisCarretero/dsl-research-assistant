@@ -1,11 +1,17 @@
 from fastapi import APIRouter
 from src.api.models import TextRequest, CitationsResponse, Citation
 from src.semantic_search.store.milvus_store import MilvusDocumentStore, MilvusIndexNotAvailableError
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 router = APIRouter()
 
+DB_SUPERDIR = os.environ.get("DP_SUPERDIR")
 
-ds = MilvusDocumentStore(db_superdir='/Users/luis/Desktop/ETH/Courses/SS25-DSL/dsl-research-assistant/db', store_name='main')
+
+ds = MilvusDocumentStore(db_superdir=DB_SUPERDIR, store_name='main')
 try:
     ds.load_store()
 except MilvusIndexNotAvailableError as e:
