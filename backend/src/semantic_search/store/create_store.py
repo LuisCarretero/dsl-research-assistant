@@ -57,7 +57,7 @@ def create_store(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
-    basepath = '/Users/luis/Desktop/ETH/Courses/SS25-DSL'
+    basepath = '/Users/luis/Desktop/ETH/Courses/SS25-DSL/dsl-research-assistant'
     parser.add_argument('--model_name', type=str, default='sentence-transformers/all-MiniLM-L6-v2')
     parser.add_argument('--metadata_dirpath', type=str, default=os.path.join(basepath, 'data/metadata3'))
     parser.add_argument('--store_dirpath', type=str, default=os.path.join(basepath, 'db'))
@@ -90,4 +90,4 @@ if __name__ == "__main__":
         store_documents=args.store_documents,
     )
 
-# poetry run python -m src.semantic_search.store.create_store --store_type=milvus --store_name=main --store_raw_embeddings=False --overwrite
+# poetry run python -m src.semantic_search.store.create_store --store_type=milvus --store_name=main --store_raw_embeddings=true --store_documents=True --overwrite

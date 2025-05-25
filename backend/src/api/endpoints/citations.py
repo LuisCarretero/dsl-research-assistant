@@ -1,11 +1,18 @@
 from fastapi import APIRouter
 from src.api.models import TextRequest, CitationsResponse, Citation
-from src.semantic_search.store.milvus_store import MilvusDocumentStore
+from src.semantic_search.store.milvus_store import MilvusDocumentStore, MilvusIndexNotAvailableError
 
 router = APIRouter()
+
+
 ds = MilvusDocumentStore(db_superdir='/Users/luis/Desktop/ETH/Courses/SS25-DSL/dsl-research-assistant/db', store_name='main')
-ds.load_store()
-assert ds.check_index_available(), "Milvus index is not available."
+try:
+    ds.load_store()
+except MilvusIndexNotAvailableError as e:
+    print(f"Could not load Milvus index. Trying to rebuild it...")
+    ds.rebuild_index_from_dir(overwrite=False, allow_embedding_calc=True)
+    ds.load_store()
+
 
 @router.post("/generate-citations/", response_model=CitationsResponse)
 async def generate_citations(request: TextRequest):

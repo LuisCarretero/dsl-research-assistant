@@ -11,6 +11,10 @@ from pymilvus import MilvusClient, DataType, Function, FunctionType, WeightedRan
 from src.semantic_search.store.faiss_store import LocalEmbeddingModel
 
 
+class MilvusIndexNotAvailableError(Exception):
+    pass
+
+
 class MilvusDocumentStore:
     def __init__(
         self,
@@ -127,7 +131,7 @@ class MilvusDocumentStore:
         # Connect to client and load index
         self._connect_client()
         if not self.check_index_available():
-            raise ConnectionError("Cannot load store - Milvus collection is unavailable. " + \
+            raise MilvusIndexNotAvailableError("Cannot load store - Milvus collection is unavailable. " + \
                                   "Please restart the server and check that collection is available.")
 
         # Load additional data
@@ -382,7 +386,7 @@ class MilvusDocumentStore:
         self._ingest_data(chunks_flattened, embeddings, np.repeat(self.document_store['id'].values, chunk_cnts).tolist())
 
         if not self.check_index_available():
-            raise ConnectionError("Rebuilding Milvus collection failed. ¯\_(ツ)_/¯")
+            raise MilvusIndexNotAvailableError("Rebuilding Milvus collection failed. ¯\_(ツ)_/¯")
 
         print(f"Rebuilt Milvus collection from {self.db_dir}")
 
@@ -428,7 +432,7 @@ class MilvusDocumentStore:
         """
 
         if not self.check_index_available():
-            raise ConnectionError("Cannot search - Milvus collection is unavailable. " + \
+            raise MilvusIndexNotAvailableError("Cannot search - Milvus collection is unavailable. " + \
                                   "Please restart the server and check that collection is available.")
         
         if retrieval_method in ['embedding', 'hybrid']:
@@ -606,7 +610,7 @@ class MilvusDocumentStore:
             # Add document metadata if enabled
             if return_doc_metadata and self.store_documents and self.document_store is not None:
                 doc_row = self.document_store[self.document_store['id'] == doc_id].iloc[0]
-                res.update(doc_row.to_dict())
+                res.update({k: v for k, v in doc_row.to_dict().items() if not k.startswith('_')})
                 
             results.append(res)
         
