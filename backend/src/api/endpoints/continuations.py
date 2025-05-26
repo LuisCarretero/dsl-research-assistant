@@ -1,15 +1,20 @@
 from fastapi import APIRouter
 from src.api.models import TextRequest, ContinuationsResponse, Continuation
-from writing_tools import LitLLMLiteratureReviewGenerator, HFClientInferenceModel
+from src.writing_tools import LitLLMLiteratureReviewGenerator, HFClientInferenceModel
 from dotenv import load_dotenv
 import os
 import re
 import pandas as pd
+from evaluate import load
 
 load_dotenv()
 
-DB_SUPERDIR = os.environ.get("DB_SUPERDIR")
+bertscorer = load("bertscore")
+
+DB_SUPERDIR = os.environ.get("DB_SUPERDIR").replace("\\ui_data", "")
 HF_TOKEN = os.environ.get("HF_TOKEN")
+
+print(DB_SUPERDIR)
 
 llm = HFClientInferenceModel(
     provider = "nebius",
@@ -19,7 +24,7 @@ llm.set_default_call_kwargs(
     model = "meta-llama/Llama-3.1-70B-Instruct"
 )
 
-model = LitLLMLiteratureReviewGenerator()
+model = LitLLMLiteratureReviewGenerator(llm)
 
 router = APIRouter()
 
@@ -41,21 +46,20 @@ async def generate_continuation(request: TextRequest):
     abstract = text[text.find(related_work_title)].replace(abstract_title, "").strip("\n ")
     related_work = text[text.find(related_work_title)+len(related_work_title):].strip("\n ")
 
-    new_refs_string = re.findall(r"\<refs\>(.*)\</refs\>", related_work)
+    new_refs = re.findall(r"\{(.*)\}", related_work)
 
-    if len(new_refs_string) == 0:
+    if len(new_refs) == 0:
         return ContinuationsResponse(continuations=[
             Continuation(
                 id=1,
-                text=text_old + "ERROR: References must be contained inside: <refs> </refs>",
+                text=text_old + "ERROR: References must be contained inside: { }",
                 confidence=0
             )
         ])
-    else:
-        new_refs_string = new_refs_string[0]
 
     # Remove the new reference string from the related work
-    related_work = related_work.replace(new_refs_string, "").strip("\n ")
+    for new_ref in new_refs:
+        related_work = related_work.replace("{"+new_ref+"}", "").strip("\n ")
 
     # Remove the <LLM> and <ERROR> citations
     related_work = related_work.replace("<LLM>", "").replace("<ERROR>", "")
@@ -67,10 +71,10 @@ async def generate_continuation(request: TextRequest):
         old_refs = []
 
     # Get all the new references
-    try:
-        new_refs = re.findall(r"\[([^\]]*)\]", new_refs_string)
-    except:
-        new_refs = []
+    #try:
+    #    new_refs = re.findall(r"\[([^\]]*)\]", new_refs_string)
+    #except:
+    #    new_refs = []
     
     # Concatenate all the references
     all_refs = old_refs + new_refs
@@ -78,7 +82,9 @@ async def generate_continuation(request: TextRequest):
     unique_refs = list(set(all_refs))
 
     # Fetch the reference data
-    reference_df = pd.read_parquet(os.path.join(DB_SUPERDIR, "documents.parquet"))
+    reference_df = pd.read_parquet(os.path.join(DB_SUPERDIR, "main/documents.parquet"))
+
+    print(reference_df.columns)
 
     # Extract the reference numbers and reference abstracts
     new_ref_nums = []
@@ -89,8 +95,10 @@ async def generate_continuation(request: TextRequest):
         related_work_draft = related_work.replace(ref, str(i))
         # If it is a new citation, add the abstract and reference number
         if ref in new_refs:
-            row = reference_df.loc[reference_df["cit_str"] == ref.strip(), "abstract"]
+            print(ref.strip())
+            row = reference_df.loc[reference_df["cit_str"] == ref.strip(), "text"]
             if len(row) > 0:
+                print(row.values[0])
                 new_ref_abstracts.append(row.values[0])
                 new_ref_nums.append(i+1)
             
@@ -99,7 +107,7 @@ async def generate_continuation(request: TextRequest):
             Continuation(
                 id=1,
                 text=text_old + "ERROR: invalid or non-existant references were given",
-                confidence=100
+                confidence=0
             )
         ])
 
@@ -138,11 +146,18 @@ async def generate_continuation(request: TextRequest):
         prediction = prediction.replace(predicted_ref_list_string, " ".join(predicted_ref_list))
 
 
+    # Remove the new references from the text
+    for new_ref in new_refs:
+        text = text.replace("{"+new_ref+"}", "["+new_ref+"]")
+
+
+    print(bertscorer.compute(predictions=[prediction], references=[abstract], lang="en"))
+
     continuations = [
         Continuation(
             id=1,
             text=text+" "+prediction,
-            confidence=90
+            confidence=int(bertscorer.compute(predictions=[prediction], references=[abstract], lang="en")["f1"][0]*100)
         )
     ]
     
