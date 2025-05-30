@@ -6,15 +6,16 @@ import os
 import re
 import pandas as pd
 from evaluate import load
+import numpy as np
 
 load_dotenv()
 
 bertscorer = load("bertscore")
 
-DB_SUPERDIR = os.environ.get("DB_SUPERDIR").replace("\\ui_data", "")
+DP_SUPERDIR = os.environ.get("DP_SUPERDIR")
 HF_TOKEN = os.environ.get("HF_TOKEN")
 
-print(DB_SUPERDIR)
+print(DP_SUPERDIR)
 
 llm = HFClientInferenceModel(
     provider = "nebius",
@@ -82,7 +83,7 @@ async def generate_continuation(request: TextRequest):
     unique_refs = list(set(all_refs))
 
     # Fetch the reference data
-    reference_df = pd.read_parquet(os.path.join(DB_SUPERDIR, "main/documents.parquet"))
+    reference_df = pd.read_parquet(os.path.join(DP_SUPERDIR, "main/documents.parquet"))
 
     print(reference_df.columns)
 
@@ -157,7 +158,7 @@ async def generate_continuation(request: TextRequest):
         Continuation(
             id=1,
             text=text+" "+prediction,
-            confidence=int(bertscorer.compute(predictions=[prediction], references=[abstract], lang="en")["f1"][0]*100)
+            confidence=int(np.mean(bertscorer.compute(predictions=[prediction], references=[new_ref_abstracts], lang="en")["f1"])*100)
         )
     ]
     
