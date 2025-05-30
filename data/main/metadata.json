@@ -1,0 +1,19 @@
+{
+    "store": {
+        "type": "milvus",
+        "db_dir": "/Users/luis/Desktop/ETH/Courses/SS25-DSL/dsl-research-assistant/db/main",
+        "store_name": "main",
+        "milvus_uri": "http://localhost:19530",
+        "store_documents": true,
+        "store_raw_embeddings": true
+    },
+    "embedding_model": {
+        "model_name": "sentence-transformers/all-MiniLM-L6-v2",
+        "chunk_size": 256,
+        "chunk_overlap": 32,
+        "batch_size": 8,
+        "pooling_type": "mean",
+        "normalize_embeddings": true,
+        "preferred_index_metric": "ip"
+    }
+}

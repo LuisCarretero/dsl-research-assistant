@@ -18,7 +18,7 @@ HF_TOKEN = os.environ.get("HF_TOKEN")
 print(DP_SUPERDIR)
 
 llm = HFClientInferenceModel(
-    provider = "nebius",
+    provider = "fireworks-ai",
     api_key = HF_TOKEN
 )
 llm.set_default_call_kwargs(
