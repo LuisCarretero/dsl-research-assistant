@@ -29,14 +29,18 @@ uvicorn = "^0.34.2"
 python-multipart = "^0.0.20"
 pydantic = "^2.11.4"
 docling-core = "^2.29.0"
+torch = {version = "2.7.0", source = "pytorch-cu126"}
+torchvision = {version = "^0.22.0", source = "pytorch-cu126"}
+rouge = "^1.0.1"
+pycocoevalcap = {git = "https://github.com/salaniz/pycocoevalcap"}
 
 [tool.poetry.group.dev.dependencies]
 ipykernel = "^6.29.5"
 tqdm = "^4.67.1"
 
 [[tool.poetry.source]]
-name = "pytorch-cu121"
-url = "https://download.pytorch.org/whl/cu121"
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
 priority = "explicit"
 
 [build-system]

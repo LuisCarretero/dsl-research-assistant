@@ -127,9 +127,9 @@ class ImageCaptioning:
                 image,
             )[0]['generated_text'].strip()
         elif self.task == "image-text-to-text":
-            prompt = ("<|start_header_id|>user<|end_header_id|>\n\n<image>\nWhat are these?<|eot_id|>"
+            prompt = ("<|start_header_id|>user<|end_header_id|>\n\n<image>\nCreate caption for this scientific figure?<|eot_id|>"
           "<|start_header_id|>assistant<|end_header_id|>\n\n")
-            caption = self.pipe(image, prompt=prompt, generate_kwargs={"max_new_tokens": 200})[0]['generated_text'].strip()
+            caption = self.pipe(image, text=prompt, generate_kwargs={"max_new_tokens": 200})[0]['generated_text'].strip()
         return caption
 
 if __name__ == "__main__":
